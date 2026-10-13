@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230891b2'/%3E%3C/svg%3E">
+    <title>iNvr · 小米摄像头 NVR</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+    <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">iNvr</span>
+        <span class="brand-sub">小米摄像头 NVR</span>
+    </div>
+    <div class="top-right" id="topRight" hidden>
+        <span class="user-chip" id="userChip"></span>
+        <button class="btn ghost" id="btnRefresh">刷新设备</button>
+        <button class="btn ghost" id="btnLock">锁定</button>
+        <button class="btn ghost danger" id="btnLogout">登出</button>
+    </div>
+</header>
+
+<main class="container">
+
+    <!-- 登录视图 -->
+    <section id="loginView" class="login-wrap">
+        <div class="login-card">
+            <h1>登录米家账号</h1>
+            <p class="muted">凭据仅用于本机向小米云端鉴权，会话以 AES-GCM 加密保存在服务端。</p>
+
+            <div id="loginForm">
+                <label>小米账号（手机号 / 邮箱 / ID）</label>
+                <input type="text" id="username" autocomplete="username" placeholder="请输入账号">
+                <label>密码</label>
+                <input type="password" id="password" autocomplete="current-password" placeholder="请输入密码">
+                <button class="btn primary block" id="btnLogin">登录</button>
+            </div>
+
+            <!-- 图形验证码 -->
+            <div id="captchaPanel" class="step-panel" hidden>
+                <p>请完成图形验证码：</p>
+                <img id="captchaImg" class="captcha-img" alt="验证码">
+                <input type="text" id="captchaCode" placeholder="输入图中字符" maxlength="8">
+                <button class="btn primary block" id="btnCaptcha">提交验证码</button>
+            </div>
+
+            <!-- 二次验证 -->
+            <div id="twofaPanel" class="step-panel" hidden>
+                <p id="twofaTip">验证码已发送，请查收：</p>
+                <input type="text" id="verifyCode" inputmode="numeric" placeholder="输入 6 位验证码" maxlength="8">
+                <button class="btn primary block" id="btnVerify">提交验证码</button>
+            </div>
+
+            <div id="loginError" class="error-box" hidden></div>
+        </div>
+    </section>
+
+    <!-- 首次设置访问密码视图 -->
+    <section id="setupView" class="login-wrap" hidden>
+        <div class="login-card">
+            <h1>设置访问密码</h1>
+            <p class="muted">米家账号已连接。首次使用请为本系统设置一个访问密码，此后每次打开 iNvr 都需输入该密码才能进入。密码以 PBKDF2 加盐哈希保存在本机，不存明文。</p>
+            <label>访问密码（至少 6 位）</label>
+            <input type="password" id="setupPw1" autocomplete="new-password" placeholder="设置访问密码">
+            <label>确认访问密码</label>
+            <input type="password" id="setupPw2" autocomplete="new-password" placeholder="再次输入访问密码">
+            <button class="btn primary block" id="btnSetup">设置并进入</button>
+            <div id="setupError" class="error-box" hidden></div>
+        </div>
+    </section>
+
+    <!-- 输入访问密码解锁视图 -->
+    <section id="lockView" class="login-wrap" hidden>
+        <div class="login-card">
+            <h1>输入访问密码</h1>
+            <p class="muted">iNvr 已受访问密码保护，请输入访问密码解锁进入。</p>
+            <label>访问密码</label>
+            <input type="password" id="lockPw" autocomplete="current-password" placeholder="请输入访问密码">
+            <button class="btn primary block" id="btnUnlock">解锁进入</button>
+            <button class="btn ghost block" id="btnGenLink" type="button">生成一键解锁链接</button>
+            <div id="lockLinkBox" class="link-box" hidden>
+                <p class="muted small">下方链接打开即解锁，等同于密码，请妥善保管，勿外发或用于公网：</p>
+                <div class="link-row">
+                    <input type="text" id="lockLinkText" readonly>
+                    <button class="btn tiny" id="btnCopyLink" type="button">复制</button>
+                </div>
+            </div>
+            <div id="lockError" class="error-box" hidden></div>
+        </div>
+    </section>
+
+    <!-- 应用视图 -->
+    <section id="appView" hidden>
+        <nav class="tabs">
+            <button class="tab active" data-tab="cameras">摄像头</button>
+            <button class="tab" data-tab="recordings">录像文件</button>
+            <button class="tab" data-tab="playback">录像回放</button>
+        </nav>
+
+        <div id="tab-cameras">
+            <div class="section-head">
+                <h2>设备列表</h2>
+                <span class="muted" id="camCount"></span>
+            </div>
+            <div class="grid" id="deviceGrid"></div>
+        </div>
+
+        <div id="tab-recordings" hidden>
+            <div class="section-head">
+                <h2>录像文件</h2>
+                <div>
+                    <select id="recFilter" class="select"></select>
+                    <button class="btn ghost" id="btnRecRefresh">刷新</button>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="rec-table">
+                    <thead>
+                    <tr><th>文件名</th><th>摄像头</th><th>大小</th><th>时间</th><th>操作</th></tr>
+                    </thead>
+                    <tbody id="recList"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="tab-playback" hidden>
+            <div class="section-head">
+                <h2>录像回放</h2>
+                <div class="pb-bar">
+                    <select id="pbCam" class="select"></select>
+                    <input type="date" id="pbDate" class="pb-date">
+                    <span class="pb-zoom" id="pbZoom">
+                        <button class="btn tiny" type="button" data-zoom="24">全天</button>
+                        <button class="btn tiny" type="button" data-zoom="6">6小时</button>
+                        <button class="btn tiny" type="button" data-zoom="1">1小时</button>
+                    </span>
+                    <button class="btn ghost tiny" type="button" id="pbPrev">◀</button>
+                    <button class="btn ghost tiny" type="button" id="pbNext">▶</button>
+                    <button class="btn ghost tiny" type="button" id="pbRefresh">刷新</button>
+                </div>
+            </div>
+
+            <div class="pb-stage">
+                <video id="pbVideo" controls playsinline></video>
+                <div id="pbEmpty" class="pb-empty">选择摄像头与日期，点击下方时间轴上的蓝色录像区段即可回放；分段会自动连续播放。</div>
+            </div>
+            <div class="pb-meta">
+                <span id="pbNow" class="muted">--:--:--</span>
+                <span id="pbSeg" class="muted"></span>
+            </div>
+            <div class="tl" id="tl">
+                <div class="tl-ruler" id="tlRuler"></div>
+                <div class="tl-track" id="tlTrack">
+                    <div class="tl-blocks" id="tlBlocks"></div>
+                    <div class="tl-cursor" id="tlCursor" hidden></div>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<!-- 实时预览模态 -->
+<div class="modal-mask" id="previewModal" hidden>
+    <div class="modal modal-lg">
+        <div class="modal-head">
+            <span id="previewTitle">实时预览</span>
+            <button class="modal-x" id="previewClose">×</button>
+        </div>
+        <div class="video-wrap">
+            <video id="previewVideo" muted autoplay playsinline controls></video>
+            <div id="previewHint" class="video-hint" hidden></div>
+            <div class="video-loading" id="previewLoading">正在连接摄像头，首次取流约需数秒…</div>
+        </div>
+        <div class="modal-foot">
+            <div class="rtsp-line">
+                <span class="muted">RTSP（VLC / ffplay 低延迟）：</span>
+                <code id="previewRtsp"></code>
+                <button class="btn tiny" id="btnCopyRtsp">复制</button>
+            </div>
+            <div class="muted small" id="previewNote">网页预览为 HLS（H.265，约 2–4 秒延迟）；多端预览 / 录像 / RTSP 共用一条摄像头连接。</div>
+        </div>
+    </div>
+</div>
+
+<!-- 录像回放模态 -->
+<div class="modal-mask" id="playerModal" hidden>
+    <div class="modal modal-lg">
+        <div class="modal-head">
+            <span id="playerTitle">录像回放</span>
+            <button class="modal-x" id="playerClose">×</button>
+        </div>
+        <div class="video-wrap">
+            <video id="playerVideo" controls></video>
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/vendor/hls.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

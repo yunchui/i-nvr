@@ -1,0 +1,33 @@
+server:
+  port: 9080
+  servlet:
+    encoding:
+      charset: UTF-8
+      # 仅强制“请求”编码；不要强制响应编码。force-response=true 时 Tomcat 会给所有响应
+      # Content-Type（含 video/mp4、video/iso.segment 二进制）追加 ;charset=UTF-8，导致
+      # Edge 原生 HLS 无法识别 fMP4 初始化段/分片而 MEDIA_ERR_SRC_NOT_SUPPORTED（黑屏）。
+      force: true
+      force-response: false
+
+spring:
+  application:
+    name: invr
+  mvc:
+    static-path-pattern: /**
+
+invr:
+  # 内嵌 RTSP 下行端口
+  rtsp-port: 9554
+  # 录像根目录与默认分段时长（秒）
+  recording-dir: recordings
+  record-segment-sec: 120
+  # 网页 HLS 预览
+  hls:
+    # 目标分片时长（秒，实际按 IDR 边界对齐，约一个 GOP）
+    target-sec: 2
+    # m3u8 滑动窗口保留的分片数
+    window: 6
+    # 无播放请求多少秒后停止该摄像头的预览上游
+    idle-sec: 25
+    # 是否把 Opus 音频转码为 AAC（转码失败自动降级为静音，不影响画面）
+    audio: true

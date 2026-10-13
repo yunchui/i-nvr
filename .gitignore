@@ -1,0 +1,12 @@
+target/
+*.class
+*.log
+captcha*.jpg
+captcha*.png
+.idea/
+*.iml
+.vscode/
+
+# 运行期数据（默认落在运行目录；勿提交密钥/会话与录像）
+.invr/
+recordings/
