@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.invr.crypto.X25519Keys;
 import com.invr.model.CameraDevice;
 import com.invr.model.P2pConnectParams;
+import com.invr.store.HostResolver;
 import com.invr.util.CryptoUtils;
 
 import java.util.LinkedHashMap;
@@ -22,9 +23,15 @@ public class VendorNegotiator {
     public static final int VENDOR_CS2 = 4;
 
     private final MiCloudApi api;
+    private final HostResolver hostResolver;
 
     public VendorNegotiator(MiCloudApi api) {
+        this(api, new HostResolver());
+    }
+
+    public VendorNegotiator(MiCloudApi api, HostResolver hostResolver) {
         this.api = api;
+        this.hostResolver = hostResolver;
     }
 
     /**
@@ -58,10 +65,19 @@ public class VendorNegotiator {
             throw new MiCloudException("miss_get_vendor 未返回 public_key/sign：" + result);
         }
 
+        // CS2 直连目标 host：云端 localip 优先，云端返回 0.0.0.0 时回退历史可用 IP / 手动覆盖
+        String host = hostResolver.resolve(device);
+        if (host == null || host.isBlank()) {
+            throw new MiCloudException("云端未返回设备 " + device.did() + "（" + device.model()
+                    + "）的有效局域网 IP（localip=" + device.localIp()
+                    + "），且无历史可用 IP。请确认设备与服务器在同一局域网；"
+                    + "或用 -Dinvr.host." + device.did() + "=<局域网IP> 手动指定。");
+        }
+
         return new P2pConnectParams(
                 device.did(),
                 device.model(),
-                device.localIp(),
+                host,
                 vendor,
                 p2pId,
                 clientPublicHex,

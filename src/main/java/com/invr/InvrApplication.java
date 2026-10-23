@@ -24,6 +24,7 @@ import com.invr.record.RecordingSink;
 import com.invr.rtsp.RtspServer;
 import com.invr.model.P2pConnectParams;
 import com.invr.store.DataDir;
+import com.invr.store.HostResolver;
 import com.invr.store.SessionStore;
 
 import java.io.Console;
@@ -420,13 +421,19 @@ public class InvrApplication {
                 .orElseThrow(() -> new MiCloudException(
                         "设备列表中未找到 did=" + did + "（取流需要设备局域网 IP，请确认设备在线且已绑定）"));
 
-        System.out.println("正在连接 " + device.model() + " @ " + device.localIp() + " ...");
+        // 实际 CS2 连接 host：云端 localip 有效用云端，否则回退历史可用 IP（HostResolver）
+        String connectHost = new HostResolver().resolve(device);
+        if (connectHost == null || connectHost.isBlank()) {
+            connectHost = device.localIp();
+        }
+        System.out.println("正在连接 " + device.model() + " @ " + connectHost
+                + "（云端 localip=" + device.localIp() + "）...");
         try {
-            java.net.InetAddress addr = java.net.InetAddress.getByName(device.localIp());
+            java.net.InetAddress addr = java.net.InetAddress.getByName(connectHost);
             if (addr.isReachable(3_000)) {
-                System.out.println("网络可达性检测：" + device.localIp() + " 可达");
+                System.out.println("网络可达性检测：" + connectHost + " 可达");
             } else {
-                System.out.println("[警告] ping " + device.localIp() + " 无回应（部分设备禁 ICMP，仍尝试握手；"
+                System.out.println("[警告] ping " + connectHost + " 无回应（部分设备禁 ICMP，仍尝试握手；"
                         + "若持续握手超时，请检查电脑与摄像头是否同一网段、Windows 防火墙是否放行 Java）");
             }
         } catch (Exception e) {

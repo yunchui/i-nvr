@@ -4,6 +4,8 @@ import com.invr.hub.StreamHub;
 import com.invr.hub.CameraConnector;
 import com.invr.model.CameraDevice;
 import com.invr.record.RecordingSink;
+import com.invr.store.AppSettingsStore;
+import com.invr.store.DataDir;
 import com.invr.store.RecordingStateStore;
 import com.invr.web.api.ApiException;
 import com.invr.web.config.NvrProperties;
@@ -23,8 +25,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -52,18 +57,60 @@ public class RecordingService {
     private final StreamHub hub;
     private final CameraConnector connector;
     private final RecordingStateStore stateStore;
-    private final File rootDir;
+    private final AppSettingsStore settingsStore;
+    /**
+     * 录像根目录，运行时可在“设置”页切换（见 {@link #updateRecordingDir}），故用 volatile 而非 final；
+     * 初始值优先取 Web 设置（settings.json），缺省回落到配置文件 {@code invr.recording-dir}。
+     */
+    private volatile File rootDir;
+    /**
+     * 生效的录像分段秒数，运行时可在“设置”页修改（见 {@link #updateSegmentSec}），volatile；
+     * 初始值优先取 Web 设置（settings.json），缺省回落到配置文件 {@code invr.record-segment-sec}。
+     */
+    private volatile long segmentSec;
+    /**
+     * 生效的录像保留天数：0 表示永久保留（不自动清理），>0 时超出该天数的分段自动删除；
+     * 运行时可在“设置”页修改，初始值优先取 Web 设置。
+     */
+    private volatile int retentionDays;
     private final Map<String, RecordingSink> active = new ConcurrentHashMap<>();
 
     public RecordingService(NvrProperties props, StreamHub hub, CameraConnector connector,
-                            RecordingStateStore stateStore) {
+                            RecordingStateStore stateStore, AppSettingsStore settingsStore) {
         this.props = props;
         this.hub = hub;
         this.connector = connector;
         this.stateStore = stateStore;
-        this.rootDir = new File(props.getRecordingDir());
-        if (!rootDir.exists() && !rootDir.mkdirs()) {
-            log.warn("录像目录创建失败：{}", rootDir.getAbsolutePath());
+        this.settingsStore = settingsStore;
+        this.rootDir = resolveInitialRootDir();
+        this.segmentSec = effectiveSegmentSec();
+        this.retentionDays = effectiveRetentionDays();
+        ensureDir(rootDir);
+    }
+
+    /** 启动时录像目录：Web 自定义设置优先，否则用配置文件默认值（相对路径相对运行目录）。 */
+    private File resolveInitialRootDir() {
+        String custom = settingsStore.recordingDir();
+        String base = (custom != null && !custom.isBlank()) ? custom : props.getRecordingDir();
+        return new File(base).getAbsoluteFile();
+    }
+
+    /** 生效的分段秒数：Web 自定义设置优先，否则用配置文件默认值。 */
+    private long effectiveSegmentSec() {
+        Integer custom = settingsStore.recordSegmentSec();
+        return (custom != null && custom > 0) ? custom : props.getRecordSegmentSec();
+    }
+
+    /** 生效的保留天数：Web 自定义设置优先，否则配置文件默认（0=永久）。 */
+    private int effectiveRetentionDays() {
+        Integer custom = settingsStore.recordRetentionDays();
+        return (custom != null && custom > 0) ? custom : props.getRecordRetentionDays();
+    }
+
+    /** 确保目录存在（启动期失败仅告警，不阻断启动；运行时切换的严格校验见 {@link #validateWritable}）。 */
+    private void ensureDir(File dir) {
+        if (!dir.exists() && !dir.mkdirs()) {
+            log.warn("录像目录创建失败：{}", dir.getAbsolutePath());
         }
     }
 
@@ -83,28 +130,42 @@ public class RecordingService {
         if (device == null) {
             throw ApiException.notFound("设备列表中未找到 did=" + did);
         }
-        long seg = segmentSec == null || segmentSec <= 0 ? props.getRecordSegmentSec() : segmentSec;
-        RecordingSink sink = new RecordingSink(did, rootDir, seg);
-        hub.subscribe(did, device.model(), connector.openerFor(device), sink);
-        active.put(did, sink);
+        long seg = segmentSec == null || segmentSec <= 0 ? this.segmentSec : segmentSec;
+        attach(did, device, seg);
         // 记录“期望持续录像”：此后即便服务重启 / 崩溃，也会在启动后自动恢复（显式停止才移除）。
         stateStore.enable(did, seg);
-        log.info("[{}] Web 触发录像开始（{}s/段）", did, seg);
+        log.info("[{}] Web 触发录像开始（{}s/段，目录 {}）", did, seg, rootDir.getAbsolutePath());
         return Map.of("did", did, "recording", true, "segmentSec", seg);
     }
 
+    /** 用当前 {@link #rootDir} 为摄像头建立录像订阅（不碰持续录像状态），供 start 与切目录重连复用。 */
+    private void attach(String did, CameraDevice device, long seg) {
+        RecordingSink sink = new RecordingSink(did, rootDir, seg);
+        hub.subscribe(did, device.model(), connector.openerFor(device), sink);
+        active.put(did, sink);
+    }
+
     public Map<String, Object> stop(String did) {
-        RecordingSink sink = active.remove(did);
+        RecordingSink sink = detach(did);
         if (sink == null) {
             throw ApiException.badRequest("该摄像头当前未在录像");
         }
-        hub.unsubscribe(did, sink);
-        sink.close();
-        // 仅“显式停止”才取消持续录像标记；进程关闭 / 崩溃不走这里，重启后仍会恢复。
+        // 仅“显式停止”才取消持续录像标记；进程关闭 / 崩溃 / 切换目录不走这里，重启后仍会恢复。
         stateStore.disable(did);
         log.info("[{}] Web 停止录像（视频包={} 分段={}）", did, sink.videoPackets(), sink.segmentCount());
         return Map.of("did", did, "recording", false,
                 "videoPackets", sink.videoPackets(), "segments", sink.segmentCount());
+    }
+
+    /** 解除某摄像头的录像订阅并正常封段（不碰持续录像状态），返回被移除的 sink；未在录返回 null。 */
+    private RecordingSink detach(String did) {
+        RecordingSink sink = active.remove(did);
+        if (sink == null) {
+            return null;
+        }
+        hub.unsubscribe(did, sink);
+        sink.close();
+        return sink;
     }
 
     /**
@@ -283,6 +344,230 @@ public class RecordingService {
             Files.deleteIfExists(f.toPath());
         } catch (IOException e) {
             throw ApiException.badRequest("删除失败：" + e.getMessage());
+        }
+    }
+
+    // ===================== 存储目录 / 分段设置（Web 设置栏） =====================
+
+    /**
+     * 当前录像相关设置信息，供“设置”页展示（RTSP 端口由 Controller 结合 {@code RtspServer} 补充）。
+     */
+    public Map<String, Object> settingsInfo() {
+        File dir = rootDir;
+        long count = 0;
+        File[] fs = dir.listFiles((d, name) ->
+                name.endsWith(".mp4") && FILE_PATTERN.matcher(name).matches());
+        if (fs != null) {
+            count = fs.length;
+        }
+        Integer segCustom = settingsStore.recordSegmentSec();
+        String dirCustom = settingsStore.recordingDir();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("recordingDir", dir.getAbsolutePath());
+        m.put("dirCustomized", dirCustom != null && !dirCustom.isBlank());
+        m.put("defaultDir", new File(props.getRecordingDir()).getAbsolutePath());
+        m.put("segmentSec", segmentSec);
+        m.put("defaultSegmentSec", props.getRecordSegmentSec());
+        m.put("segmentCustomized", segCustom != null && segCustom > 0);
+        Integer retCustom = settingsStore.recordRetentionDays();
+        m.put("retentionDays", retentionDays);
+        m.put("defaultRetentionDays", props.getRecordRetentionDays());
+        m.put("retentionCustomized", retCustom != null && retCustom > 0);
+        m.put("recordingCount", count);
+        m.put("activeCount", active.size());
+        m.put("freeSpace", dir.exists() ? dir.getFreeSpace() : 0L);
+        m.put("totalSpace", dir.exists() ? dir.getTotalSpace() : 0L);
+        m.put("dataDir", DataDir.get().toString());
+        return m;
+    }
+
+    /**
+     * 运行时切换录像存储目录。
+     *
+     * <p>rawPath 为 null / 空白表示恢复配置文件默认目录；否则为目录选择器选定的绝对路径（相对路径
+     * 相对程序启动目录，与默认 {@code recordings} 行为一致），统一规范化为绝对路径。目录必须可创建、
+     * 可写。切换时正在录像的摄像头会先在旧目录正常封段（持续录像标记保留），随后在新目录重新订阅
+     * 继续录像；历史文件不会被移动。设置持久化到 settings.json，重启后仍然生效。</p>
+     */
+    public synchronized Map<String, Object> updateRecordingDir(String rawPath) {
+        boolean reset = rawPath == null || rawPath.trim().isEmpty();
+        File target = reset ? new File(props.getRecordingDir()) : new File(rawPath.trim());
+        File abs;
+        try {
+            abs = target.getAbsoluteFile().getCanonicalFile();
+        } catch (IOException e) {
+            throw ApiException.badRequest("路径无效：" + e.getMessage());
+        }
+        validateWritable(abs);
+
+        File current;
+        try {
+            current = rootDir.getCanonicalFile();
+        } catch (IOException e) {
+            current = rootDir.getAbsoluteFile();
+        }
+        if (abs.equals(current)) {
+            // 目录相同：仍把偏好落盘（例如把相对路径确认为当前绝对路径），但不重接录像订阅
+            settingsStore.saveRecordingDir(reset ? null : abs.getAbsolutePath());
+            return settingsInfo();
+        }
+
+        // 先在旧目录对所有正在录像的路正常封段并解除订阅（不取消持续录像标记）
+        List<String> running = detachAll();
+        // 切换根目录并持久化（先确保目录可用，再落盘，避免保存一个不可用路径）
+        this.rootDir = abs;
+        ensureDir(abs);
+        settingsStore.saveRecordingDir(reset ? null : abs.getAbsolutePath());
+        log.info("录像存储目录已切换为：{}（{} 路录像将在新目录继续）", abs.getAbsolutePath(), running.size());
+        // 用当前目录与分段重建订阅；设备暂不可达不阻断，交由 reconcile 下一轮用新目录补录
+        reattachAll(running);
+        return settingsInfo();
+    }
+
+    /**
+     * 运行时修改录像分段时长（秒）。
+     *
+     * <p>校验范围后持久化，并让正在录像的路在当前段封段后按新时长续录；同时更新每一路持续录像
+     * 状态中记录的段时长，保证重启恢复也使用新值。设置持久化，重启后生效。</p>
+     */
+    public synchronized Map<String, Object> updateSegmentSec(long sec) {
+        if (sec < 10 || sec > 3600) {
+            throw ApiException.badRequest("分段时长需在 10～3600 秒之间");
+        }
+        // 等于配置文件默认值时清除自定义标记（恢复默认）
+        Integer saved = (sec == props.getRecordSegmentSec()) ? null : Integer.valueOf((int) sec);
+        if (sec == this.segmentSec) {
+            settingsStore.saveRecordSegmentSec(saved);
+            return settingsInfo();
+        }
+        // 同步更新每一路持久化期望状态里的段时长，否则重建 / 重启恢复仍会取旧值
+        for (String did : stateStore.cameras().keySet()) {
+            stateStore.enable(did, sec);
+        }
+        List<String> running = detachAll();
+        this.segmentSec = sec;
+        settingsStore.saveRecordSegmentSec(saved);
+        log.info("录像分段时长已改为 {}s（{} 路录像将按新时长续录）", sec, running.size());
+        reattachAll(running);
+        return settingsInfo();
+    }
+
+    /**
+     * 修改录像保留天数（0=永久保留）。持久化后立即按新策略清理一次。
+     *
+     * <p>保留天数不需要重建录像通道，仅更新策略并触发一次清理。</p>
+     */
+    public synchronized Map<String, Object> updateRetentionDays(int days) {
+        if (days < 0 || days > 3650) {
+            throw ApiException.badRequest("保留天数需在 0～3650 之间（0 表示永久保留）");
+        }
+        this.retentionDays = days;
+        settingsStore.saveRecordRetentionDays(days > 0 ? days : null);
+        int removed = cleanupExpired();
+        log.info("录像保留天数已设为 {}（{}），本次清理过期分段 {} 个",
+                days, days > 0 ? "保留最近 " + days + " 天" : "永久保留", removed);
+        return settingsInfo();
+    }
+
+    /**
+     * 删除超出保留天数的录像分段。
+     *
+     * <p>判定基准为文件最后修改时间（已封段即封段时间），仅清理符合命名规则的 mp4；
+     * 保留天数为 0（永久）时不清理；任何正在写入的分段都不删除。返回删除的文件数量。</p>
+     */
+    public int cleanupExpired() {
+        int days = retentionDays;
+        if (days <= 0) {
+            return 0;
+        }
+        File dir = rootDir;
+        File[] files = dir.listFiles((d, name) ->
+                name.endsWith(".mp4") && FILE_PATTERN.matcher(name).matches());
+        if (files == null || files.length == 0) {
+            return 0;
+        }
+        // 所有正在写入的分段名一律不删（它们的时间戳也很新，双重保险）。
+        Set<String> writing = new HashSet<>();
+        active.forEach((did, sink) -> {
+            String n = sink.currentSegmentName();
+            if (n != null) {
+                writing.add(n);
+            }
+        });
+        long cutoff = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000;
+        int removed = 0;
+        for (File f : files) {
+            try {
+                if (writing.contains(f.getName()) || f.lastModified() >= cutoff) {
+                    continue;
+                }
+                if (Files.deleteIfExists(f.toPath())) {
+                    removed++;
+                    log.info("清理过期录像（保留 {} 天）：{}", days, f.getName());
+                }
+            } catch (IOException e) {
+                log.warn("清理录像失败 {}：{}", f.getName(), e.getMessage());
+            }
+        }
+        if (removed > 0) {
+            log.info("录像保留清理完成：共删除 {} 个过期分段", removed);
+        }
+        return removed;
+    }
+
+    /** 解除全部活动录像订阅（在旧目录 / 旧参数下正常封段），返回被拆除的 did 快照。 */
+    private List<String> detachAll() {
+        List<String> dids = new ArrayList<>(active.keySet());
+        for (String did : dids) {
+            if (detach(did) != null) {
+                log.info("[{}] 设置变更：当前段已正常封段", did);
+            }
+        }
+        return dids;
+    }
+
+    /** 用当前 {@link #rootDir} 与各路段时长（持久化期望状态，缺省取生效值）重建订阅。 */
+    private void reattachAll(List<String> dids) {
+        Map<String, Long> segMap = stateStore.cameras();
+        for (String did : dids) {
+            try {
+                // 极罕见竞态：detach 后 reconcile 已抢先重建该路，则不重复订阅
+                if (active.containsKey(did)) {
+                    continue;
+                }
+                CameraDevice device = connector.findDevice(did);
+                if (device == null) {
+                    log.warn("[{}] 设置变更后未在设备列表找到，等待对账恢复录像", did);
+                    continue;
+                }
+                long seg = segMap.getOrDefault(did, segmentSec);
+                attach(did, device, seg);
+                log.info("[{}] 已按新设置继续录像", did);
+            } catch (Exception ex) {
+                log.warn("[{}] 设置变更后重接录像失败，等待对账恢复：{}", did, ex.toString());
+            }
+        }
+    }
+
+    /** 校验目标目录存在且可写（创建 + 临时探测文件），不可用则抛 400 并带可读原因。 */
+    private void validateWritable(File dir) {
+        try {
+            Files.createDirectories(dir.toPath());
+        } catch (IOException e) {
+            throw ApiException.badRequest("无法创建目录 " + dir.getAbsolutePath() + "：" + e.getMessage());
+        }
+        if (!dir.isDirectory()) {
+            throw ApiException.badRequest("路径不是目录：" + dir.getAbsolutePath());
+        }
+        File probe = null;
+        try {
+            probe = File.createTempFile("invr-wtest-", ".tmp", dir);
+        } catch (IOException e) {
+            throw ApiException.badRequest("目录不可写 " + dir.getAbsolutePath() + "：" + e.getMessage());
+        } finally {
+            if (probe != null && !probe.delete()) {
+                probe.deleteOnExit();
+            }
         }
     }
 }

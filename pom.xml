@@ -31,6 +31,7 @@
         <netty.version>4.1.115.Final</netty.version>
     </properties>
 
+    <!-- 依赖：Spring Boot Web + 米家云(OkHttp/Jackson) + 密码学(BouncyCastle) + Netty + JavaCV/FFmpeg(Windows+Linux 双平台 native) + 测试 -->
     <dependencies>
         <!-- Spring Boot Web（内嵌 Tomcat + Spring MVC）；排除默认 logback，沿用 slf4j-simple -->
         <dependency>
@@ -72,7 +73,9 @@
             <version>${netty.version}</version>
         </dependency>
 
-        <!-- 进程内 FFmpeg（MP4 录像流拷贝 / HLS 切片；只打 windows-x86_64 native） -->
+        <!-- 进程内 FFmpeg（MP4 录像流拷贝 / HLS 切片）；同时打包 Windows + Linux x86_64 两套 native，
+             一个 fat jar 双平台运行；JavaCPP 运行时按 os.name/os.arch 自动选择对应本地库，
+             无需在目标系统安装 ffmpeg。如需 ARM 服务器，再追加 classifier=linux-arm64 即可。 -->
         <dependency>
             <groupId>org.bytedeco</groupId>
             <artifactId>javacpp</artifactId>
@@ -88,6 +91,12 @@
             <artifactId>ffmpeg</artifactId>
             <version>${ffmpeg.version}</version>
             <classifier>windows-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>ffmpeg</artifactId>
+            <version>${ffmpeg.version}</version>
+            <classifier>linux-x86_64</classifier>
         </dependency>
 
         <!-- 日志：slf4j-simple（全项目统一） -->

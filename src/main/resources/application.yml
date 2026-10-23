@@ -18,8 +18,6 @@ spring:
 invr:
   # 内嵌 RTSP 下行端口
   rtsp-port: 9554
-  # 录像根目录与默认分段时长（秒）
-  recording-dir: recordings
   record-segment-sec: 120
   # 网页 HLS 预览
   hls:

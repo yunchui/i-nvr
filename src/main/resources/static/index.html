@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230891b2'/%3E%3C/svg%3E">
     <title>iNvr · 小米摄像头 NVR</title>
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=8">
 </head>
 <body>
 <header class="topbar">
@@ -97,6 +97,7 @@
             <button class="tab active" data-tab="cameras">摄像头</button>
             <button class="tab" data-tab="recordings">录像文件</button>
             <button class="tab" data-tab="playback">录像回放</button>
+            <button class="tab" data-tab="settings">设置</button>
         </nav>
 
         <div id="tab-cameras">
@@ -158,6 +159,56 @@
                 </div>
             </div>
         </div>
+
+        <!-- 设置 -->
+        <div id="tab-settings" hidden>
+            <div class="section-head">
+                <h2>系统设置</h2>
+            </div>
+            <div class="settings-grid">
+                <div class="set-card">
+                    <h3>录像存储路径</h3>
+                    <p class="muted small">录像分段（MP4）的保存目录。修改后立即生效：之后的录像写入新目录；正在录制的摄像头会在当前分段正常封段后，于新目录继续录制。已有录像文件不会自动移动，如需合并请手动迁移。</p>
+                    <label>当前存储目录</label>
+                    <div class="set-path" id="setCurDir">—</div>
+                    <div class="set-stats" id="setStats"></div>
+                    <label>新存储目录（仅可选择有写权限的目录）</label>
+                    <div class="set-pick">
+                        <input type="text" id="setDirInput" readonly placeholder="点击右侧“浏览”选择服务器上的目录">
+                        <button class="btn" id="btnBrowseDir" type="button">浏览…</button>
+                    </div>
+                    <div class="set-actions">
+                        <button class="btn primary" id="btnSaveDir" type="button" disabled>保存并应用</button>
+                        <button class="btn" id="btnResetDir" type="button">恢复默认</button>
+                        <button class="btn" id="btnRefreshDir" type="button">刷新</button>
+                    </div>
+                    <div id="setError" class="error-box" hidden></div>
+                    <p class="muted small">默认目录：<code id="setDefaultDir"></code>。选择的是<strong>服务器</strong>（运行本程序的机器）上的目录；设置会持久化，重启后仍生效。</p>
+                </div>
+                <div class="set-card">
+                    <h3>运行参数</h3>
+                    <label>录像分段时长（秒，10～3600）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setSegmentInput" min="10" max="3600" step="10">
+                        <button class="btn primary" id="btnSaveSegment" type="button">保存</button>
+                    </div>
+                    <p class="muted small" id="setSegmentHint"></p>
+                    <label>RTSP 端口（1024～65535）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setRtspInput" min="1024" max="65535" step="1">
+                        <button class="btn primary" id="btnSaveRtsp" type="button">保存</button>
+                    </div>
+                    <p class="muted small" id="setRtspHint"></p>
+                    <label>录像保留天数（天，0=永久保存）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setRetentionInput" min="0" max="3650" step="1">
+                        <button class="btn primary" id="btnSaveRetention" type="button">保存</button>
+                    </div>
+                    <p class="muted small" id="setRetentionHint"></p>
+                    <div class="set-kv" id="setMisc"></div>
+                </div>
+            </div>
+        </div>
     </section>
 </main>
 
@@ -197,9 +248,34 @@
     </div>
 </div>
 
+<!-- 服务器目录选择模态 -->
+<div class="modal-mask" id="dirModal" hidden>
+    <div class="modal modal-dir">
+        <div class="modal-head">
+            <span>选择录像存储目录（服务器）</span>
+            <button class="modal-x" id="dirClose" type="button">×</button>
+        </div>
+        <div class="dir-toolbar">
+            <button class="btn tiny" id="dirUp" type="button">↑ 上一级</button>
+            <button class="btn tiny" id="dirReload" type="button">刷新</button>
+            <div class="dir-current" id="dirCurrent">—</div>
+        </div>
+        <div class="dir-roots" id="dirRoots"></div>
+        <div class="dir-list" id="dirList"></div>
+        <div class="dir-status muted small" id="dirStatus"></div>
+        <div class="modal-foot">
+            <div class="dir-selected muted small">已选：<code id="dirSelected">未选择</code></div>
+            <div class="set-actions">
+                <button class="btn primary" id="dirConfirm" type="button" disabled>选择此目录</button>
+                <button class="btn" id="dirCancel" type="button">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script src="/vendor/hls.min.js"></script>
-<script src="/app.js"></script>
+<script src="/app.js?v=8"></script>
 </body>
 </html>

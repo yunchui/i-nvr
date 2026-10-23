@@ -11,6 +11,8 @@ public class NvrProperties {
     private int rtspPort = 8554;
     private String recordingDir = "recordings";
     private long recordSegmentSec = 120;
+    /** 录像保留天数：0 表示永久保留，不自动清理；>0 时超出该天数的分段自动删除。 */
+    private int recordRetentionDays = 0;
     private final Hls hls = new Hls();
 
     public int getRtspPort() {
@@ -35,6 +37,14 @@ public class NvrProperties {
 
     public void setRecordSegmentSec(long recordSegmentSec) {
         this.recordSegmentSec = recordSegmentSec;
+    }
+
+    public int getRecordRetentionDays() {
+        return recordRetentionDays;
+    }
+
+    public void setRecordRetentionDays(int recordRetentionDays) {
+        this.recordRetentionDays = recordRetentionDays;
     }
 
     public Hls getHls() {

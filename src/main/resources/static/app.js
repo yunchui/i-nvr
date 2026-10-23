@@ -19,7 +19,8 @@
         pb: {
             inited: false, did: null, dateStr: null,
             zoom: 24, winStart: 0, dayStart: 0, winDur: 86400000,
-            segs: [], idx: -1, curStart: 0, pendingOffset: null
+            segs: [], idx: -1, curStart: 0, pendingOffset: null,
+            liveTimer: null, liveBusy: false
         }
     };
 
@@ -455,9 +456,27 @@
         return (c && c.name) ? (c.name + '（' + did + '）') : String(did);
     }
 
+    /* 将秒数格式化为友好的分段时长（120 -> 2 分钟、90 -> 1 分 30 秒、10 -> 10 秒）。 */
+    function formatSeg(sec) {
+        sec = parseInt(sec, 10) || 0;
+        if (sec > 0 && sec % 60 === 0) return (sec / 60) + ' 分钟';
+        if (sec >= 60) return Math.floor(sec / 60) + ' 分 ' + (sec % 60) + ' 秒';
+        return sec + ' 秒';
+    }
+
     /* ---------- 录像 ---------- */
     async function startRecord(did) {
-        if (!confirm('确认开始录像？将按 2 分钟分段保存为 MP4。')) return;
+        // 提示用当前生效的分段时长（设置页加载过则直接用缓存，否则实时取一次）
+        var seg = state.settings && state.settings.segmentSec;
+        if (seg == null) {
+            try {
+                state.settings = await api('/api/settings');
+                seg = state.settings.segmentSec;
+            } catch (e) {
+                seg = 120; // 仅用于提示文案兜底，实际录制时长以后端生效配置为准
+            }
+        }
+        if (!confirm('确认开始录像？将按 ' + formatSeg(seg) + ' 分段保存为 MP4。')) return;
         try {
             await api('/api/record/' + did + '/start', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
@@ -529,6 +548,244 @@
             await api('/api/recordings/' + encodeURIComponent(name), { method: 'DELETE' });
             toast('已删除', 'ok'); loadRecordings();
         } catch (e) { toast(e.message, 'err'); }
+    }
+
+    /* ---------- 系统设置（存储路径 / 分段 / 端口 / 目录选择） ---------- */
+    var FOLDER_SVG = '<svg class="dir-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">' +
+        '<path fill="currentColor" d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
+
+    function setKv(k, v) {
+        return '<div><span>' + esc(k) + '</span><b>' + esc(v) + '</b></div>';
+    }
+
+    async function loadSettings() {
+        try {
+            var s = await api('/api/settings');
+            state.settings = s;
+            $('setCurDir').textContent = s.recordingDir;
+            $('setDefaultDir').textContent = s.defaultDir;
+            $('setStats').innerHTML =
+                '<span>录像文件 <b>' + (s.recordingCount || 0) + '</b> 个</span>' +
+                '<span>录制中 <b>' + (s.activeCount || 0) + '</b> 路</span>' +
+                '<span>可用空间 <b>' + fmtSize(s.freeSpace) + '</b> / ' + fmtSize(s.totalSpace) + '</span>';
+            $('setMisc').innerHTML = setKv('程序数据目录', s.dataDir);
+            $('setError').hidden = true;
+            $('setError').textContent = '';
+            // 未选择新目录前禁用保存
+            $('setDirInput').value = '';
+            $('btnSaveDir').disabled = true;
+            // 分段时长
+            $('setSegmentInput').value = s.segmentSec;
+            $('setSegmentHint').textContent = (s.segmentCustomized ? '当前为自定义值，默认 ' + s.defaultSegmentSec + ' 秒。' : '当前为默认值。')
+                + '保存后正在录制的分段会封段并按新时长续录。';
+            // RTSP 端口
+            $('setRtspInput').value = s.rtspPort;
+            $('setRtspHint').textContent = '当前为' + (s.rtspCustomized ? '自定义' : '默认') + '端口，默认 ' + s.defaultRtspPort
+                + '。保存后立即切换，现有 RTSP 播放器会短暂断开，需用新地址重连。';
+            // 录像保留天数
+            $('setRetentionInput').value = s.retentionDays;
+            $('setRetentionHint').textContent = (s.retentionDays > 0)
+                ? '当前保留最近 ' + s.retentionDays + ' 天，超期录像每小时自动清理（'
+                    + (s.retentionCustomized ? '自定义值' : '默认值') + '，默认 ' + s.defaultRetentionDays + ' 天）。'
+                : '当前为永久保存，不自动清理（0 表示永久；默认值为 ' + s.defaultRetentionDays + ' 天）。';
+        } catch (e) {
+            if (e.status === 401) return; // 门禁失效由全局逻辑切回解锁页
+            toast('加载设置失败：' + e.message, 'err');
+        }
+    }
+
+    async function saveSettings(reset) {
+        var val = reset ? '' : $('setDirInput').value.trim();
+        if (!reset && !val) {
+            toast('请先点击“浏览”选择一个目录', 'err');
+            return;
+        }
+        if (!confirm(reset
+            ? '确认恢复为默认存储目录？\n当前正在录制的分段会在封段后写入默认目录。'
+            : '确认将录像存储路径修改为：\n' + val + '\n\n正在录制的分段会在当前段封段后写入新目录，已有录像不会自动移动。')) {
+            return;
+        }
+        $('btnSaveDir').disabled = true;
+        $('btnResetDir').disabled = true;
+        try {
+            var s = await api('/api/settings', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recordingDir: val })
+            });
+            toast('存储路径已应用：' + s.recordingDir, 'ok');
+            $('setDirInput').value = '';
+            await loadSettings();
+            loadRecordings();
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            var box = $('setError');
+            box.hidden = false;
+            box.textContent = e.message;
+        } finally {
+            $('btnResetDir').disabled = false;
+        }
+    }
+
+    async function saveSegment() {
+        var sec = parseInt($('setSegmentInput').value, 10);
+        if (isNaN(sec) || sec < 10 || sec > 3600) {
+            toast('分段时长需在 10～3600 秒之间', 'err');
+            return;
+        }
+        if (!confirm('确认将录像分段时长改为 ' + sec + ' 秒？\n正在录制的分段会正常封段后按新时长续录。')) return;
+        var btn = $('btnSaveSegment');
+        btn.disabled = true;
+        try {
+            var s = await api('/api/settings/segment', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ segmentSec: sec })
+            });
+            toast('分段时长已保存：' + s.segmentSec + ' 秒', 'ok');
+            await loadSettings();
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            toast('保存失败：' + e.message, 'err');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function saveRtsp() {
+        var port = parseInt($('setRtspInput').value, 10);
+        if (isNaN(port) || port < 1024 || port > 65535) {
+            toast('RTSP 端口需在 1024～65535 之间', 'err');
+            return;
+        }
+        if (!confirm('确认将 RTSP 端口改为 ' + port + '？\n现有 RTSP 播放器会断开，需用新端口重连。')) return;
+        var btn = $('btnSaveRtsp');
+        btn.disabled = true;
+        try {
+            var s = await api('/api/settings/rtsp', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rtspPort: port })
+            });
+            toast('RTSP 端口已切换为 ' + s.rtspPort, 'ok');
+            await loadSettings();
+            loadDevices(false); // 刷新设备卡片上的 RTSP 地址
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            toast('切换失败：' + e.message, 'err');
+            await loadSettings();
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function saveRetention() {
+        var days = parseInt($('setRetentionInput').value, 10);
+        if (isNaN(days) || days < 0 || days > 3650) {
+            toast('保留天数需在 0～3650 之间（0 表示永久保存）', 'err');
+            return;
+        }
+        if (!confirm(days === 0
+            ? '确认设置为永久保存？\n将不再自动删除历史录像。'
+            : '确认将录像保留天数改为 ' + days + ' 天？\n超过该天数的录像将被自动删除。')) return;
+        var btn = $('btnSaveRetention');
+        btn.disabled = true;
+        try {
+            var s = await api('/api/settings/retention', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ retentionDays: days })
+            });
+            toast(days === 0 ? '已设置为永久保存' : '保留天数已保存：' + s.retentionDays + ' 天', 'ok');
+            await loadSettings();
+            loadRecordings();
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            toast('保存失败：' + e.message, 'err');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    /* ---------- 服务器目录选择弹窗 ---------- */
+    var dirData = { current: null, parent: null, roots: [], entries: [] };
+    var dirPicked = null;
+
+    function openDirModal() {
+        dirPicked = null;
+        $('dirConfirm').disabled = true;
+        $('dirSelected').textContent = '未选择';
+        $('dirModal').hidden = false;
+        // 从当前存储目录开始浏览，缺省从盘符/根开始
+        var start = (state.settings && state.settings.recordingDir) ? state.settings.recordingDir : '';
+        loadDir(start);
+    }
+
+    function closeDirModal() {
+        $('dirModal').hidden = true;
+    }
+
+    async function loadDir(path) {
+        var box = $('dirList');
+        box.innerHTML = '<div class="dir-empty">加载中…</div>';
+        $('dirStatus').textContent = '';
+        try {
+            var q = path ? ('?path=' + encodeURIComponent(path)) : '';
+            dirData = await api('/api/settings/browse' + q);
+            renderDir();
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); closeDirModal(); return; }
+            box.innerHTML = '';
+            $('dirStatus').textContent = '无法打开该目录：' + e.message;
+        }
+    }
+
+    function renderDir() {
+        var d = dirData;
+        $('dirCurrent').textContent = d.current || '此电脑 / 根目录';
+        $('dirUp').disabled = !d.parent;
+        $('dirRoots').innerHTML = (d.roots || []).map(function (r) {
+            return '<button class="btn tiny dir-drive" type="button" data-path="' + esc(r.path) + '">' + esc(r.name) + '</button>';
+        }).join('');
+        var box = $('dirList');
+        if (!d.entries || !d.entries.length) {
+            box.innerHTML = '<div class="dir-empty">（此目录下没有子目录）</div>';
+        } else {
+            box.innerHTML = d.entries.map(function (e) {
+                var cls = e.writable ? 'dir-item' : 'dir-item ro';
+                return '<div class="' + cls + '" data-path="' + esc(e.path) + '" data-writable="' + (e.writable ? '1' : '0') + '">' +
+                    FOLDER_SVG +
+                    '<span class="dir-name">' + esc(e.name) + '</span>' +
+                    '<span class="dir-flag">' + (e.writable ? '可写' : '不可写') + '</span>' +
+                    '</div>';
+            }).join('');
+        }
+        box.querySelectorAll('.dir-item').forEach(function (el) {
+            var p = el.getAttribute('data-path');
+            var writable = el.getAttribute('data-writable') === '1';
+            el.addEventListener('click', function () {
+                box.querySelectorAll('.dir-item').forEach(function (x) { x.classList.remove('sel'); });
+                el.classList.add('sel');
+                dirPicked = writable ? p : null;
+                $('dirSelected').textContent = writable ? p : '该目录不可写，无法选择';
+                $('dirConfirm').disabled = !writable;
+            });
+            el.addEventListener('dblclick', function () {
+                loadDir(p); // 双击进入（不可写也可尝试进入查看）
+            });
+        });
+        $('dirRoots').querySelectorAll('.dir-drive').forEach(function (b) {
+            b.addEventListener('click', function () { loadDir(b.getAttribute('data-path')); });
+        });
+        if (d.unreadable) {
+            $('dirStatus').textContent = '该目录无权限列出内容。';
+        }
+    }
+
+    function confirmDir() {
+        if (!dirPicked) {
+            toast('请选择一个可写目录', 'err');
+            return;
+        }
+        $('setDirInput').value = dirPicked;
+        $('btnSaveDir').disabled = false;
+        closeDirModal();
     }
 
     /* ---------- HLS 预览 ---------- */
@@ -670,6 +927,20 @@
     function localDateStr(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
     function hms(ms) { var d = new Date(ms); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()); }
 
+    /** 回放页时间轴静默刷新周期：让新封段的分段与“录制中”块的增长及时反映出来。 */
+    var PB_LIVE_MS = 15000;
+
+    function startPbLive() {
+        var pb = state.pb;
+        if (pb.liveTimer) return;
+        pb.liveTimer = setInterval(refreshTimelineLive, PB_LIVE_MS);
+    }
+
+    function stopPbLive() {
+        var pb = state.pb;
+        if (pb.liveTimer) { clearInterval(pb.liveTimer); pb.liveTimer = null; }
+    }
+
     function enterPlayback() {
         renderPbCam();
         var pb = state.pb;
@@ -680,6 +951,7 @@
         if (pb.did) { $('pbCam').value = pb.did; }
         else if (state.devices.length) { pb.did = String(state.devices[0].did); $('pbCam').value = pb.did; }
         setZoomUi();
+        startPbLive();
         if (!pb.inited) { pb.inited = true; loadTimeline(); }
     }
 
@@ -710,6 +982,52 @@
         } catch (e) { pb.segs = []; toast(e.message, 'err'); }
         computeWin(true);
         renderTimeline();
+    }
+
+    /** 分段集合的轻量签名（名称/起止/时长/录制态），用于判断静默刷新是否真有变化。 */
+    function tlSig(segs) {
+        return segs.map(function (s) {
+            return s.name + '@' + s.startMs + ':' + s.durMs + (s.recording ? 'r' : '');
+        }).join('|');
+    }
+
+    /**
+     * 回放页停留期间的静默刷新：重新拉取当天时间轴，让“新封段的分段”出现、
+     * “录制中”块随时间增长。不重置日期 / 缩放 / 窗口，也不打断正在播放的视频；
+     * 当前播放段按文件名重新定位（避免新段插入导致索引漂移）。
+     */
+    async function refreshTimelineLive() {
+        var pb = state.pb;
+        if (pb.liveBusy || !pb.did) return;
+        pb.liveBusy = true;
+        try {
+            var data = await api('/api/timeline/' + encodeURIComponent(pb.did)
+                + '?date=' + encodeURIComponent(pb.dateStr || localDateStr(new Date())));
+            var segs = data.segments || [];
+            if (tlSig(segs) === tlSig(pb.segs)) return;
+            var curName = (pb.idx >= 0 && pb.segs[pb.idx]) ? pb.segs[pb.idx].name : null;
+            pb.segs = segs;
+            if (curName) {
+                var ni = -1;
+                for (var k = 0; k < segs.length; k++) { if (segs[k].name === curName) { ni = k; break; } }
+                if (ni >= 0) {
+                    pb.idx = ni;
+                    pb.curStart = segs[ni].startMs;
+                } else {
+                    // 当前段已不在（如刚被保留策略清理），停止播放并复位选中
+                    pb.idx = -1;
+                    var pv0 = $('pbVideo');
+                    pv0.pause(); pv0.removeAttribute('src'); pv0.load();
+                    $('pbEmpty').hidden = false;
+                }
+            }
+            renderTimeline();
+        } catch (e) {
+            // 静默失败，不打扰正在观看；门禁失效走全局 401 处理
+            if (e.status === 401) { scheduleGateRelock(); }
+        } finally {
+            pb.liveBusy = false;
+        }
     }
 
     function computeWin(resetAnchor) {
@@ -926,6 +1244,25 @@
         $('btnRecRefresh').addEventListener('click', loadRecordings);
         $('recFilter').addEventListener('change', loadRecordings);
 
+        // 设置：存储路径 / 分段 / 端口
+        $('btnBrowseDir').addEventListener('click', openDirModal);
+        $('btnSaveDir').addEventListener('click', function () { saveSettings(false); });
+        $('btnResetDir').addEventListener('click', function () {
+            if (confirm('确认恢复为默认存储目录？\n当前正在录制的分段会在封段后写入默认目录。')) saveSettings(true);
+        });
+        $('btnRefreshDir').addEventListener('click', loadSettings);
+        $('btnSaveSegment').addEventListener('click', saveSegment);
+        $('btnSaveRtsp').addEventListener('click', saveRtsp);
+        $('btnSaveRetention').addEventListener('click', saveRetention);
+
+        // 目录选择弹窗
+        $('dirClose').addEventListener('click', closeDirModal);
+        $('dirCancel').addEventListener('click', closeDirModal);
+        $('dirConfirm').addEventListener('click', confirmDir);
+        $('dirUp').addEventListener('click', function () { if (dirData.parent) loadDir(dirData.parent); });
+        $('dirReload').addEventListener('click', function () { loadDir(dirData.current); });
+        $('dirModal').addEventListener('click', function (e) { if (e.target === this) closeDirModal(); });
+
         // 时间轴回放
         $('pbCam').addEventListener('change', loadTimeline);
         $('pbDate').addEventListener('change', loadTimeline);
@@ -985,9 +1322,11 @@
                 $('tab-cameras').hidden = name !== 'cameras';
                 $('tab-recordings').hidden = name !== 'recordings';
                 $('tab-playback').hidden = name !== 'playback';
+                $('tab-settings').hidden = name !== 'settings';
                 if (name === 'recordings') loadRecordings();
                 if (name === 'playback') enterPlayback();
-                else pausePb();
+                else { pausePb(); stopPbLive(); }
+                if (name === 'settings') loadSettings();
             });
         });
 

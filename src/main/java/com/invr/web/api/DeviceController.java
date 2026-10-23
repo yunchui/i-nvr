@@ -1,6 +1,8 @@
 package com.invr.web.api;
 
 import com.invr.model.CameraDevice;
+import com.invr.rtsp.RtspServer;
+import com.invr.store.HostResolver;
 import com.invr.web.config.NvrProperties;
 import com.invr.web.service.DeviceCatalog;
 import com.invr.web.service.HlsService;
@@ -27,13 +29,16 @@ public class DeviceController {
     private final RecordingService recordingService;
     private final HlsService hlsService;
     private final NvrProperties props;
+    private final RtspServer rtspServer;
+    private final HostResolver hostResolver = new HostResolver();
 
     public DeviceController(DeviceCatalog catalog, RecordingService recordingService,
-                            HlsService hlsService, NvrProperties props) {
+                            HlsService hlsService, NvrProperties props, RtspServer rtspServer) {
         this.catalog = catalog;
         this.recordingService = recordingService;
         this.hlsService = hlsService;
         this.props = props;
+        this.rtspServer = rtspServer;
     }
 
     @GetMapping("/devices")
@@ -62,11 +67,13 @@ public class DeviceController {
         m.put("did", c.did());
         m.put("name", c.name());
         m.put("model", c.model());
-        m.put("localIp", c.localIp());
+        // 显示实际可用于连接的 IP：云端 localip 有效用云端，云端为 0.0.0.0 时回退历史可用 IP
+        String effectiveIp = hostResolver.resolve(c);
+        m.put("localIp", effectiveIp != null ? effectiveIp : c.localIp());
         m.put("online", c.online());
         m.put("recording", recordingService.isRecording(c.did()));
         m.put("previewing", hlsService.isPreviewing(c.did()));
-        m.put("rtspUrl", "rtsp://" + host + ":" + props.getRtspPort() + "/" + c.did());
+        m.put("rtspUrl", "rtsp://" + host + ":" + rtspServer.getPort() + "/" + c.did());
         m.put("hlsUrl", "/hls/" + c.did() + "/index.m3u8");
         return m;
     }

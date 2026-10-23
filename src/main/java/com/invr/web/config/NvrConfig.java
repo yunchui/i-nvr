@@ -3,6 +3,7 @@ package com.invr.web.config;
 import com.invr.hub.StreamHub;
 import com.invr.hub.CameraConnector;
 import com.invr.rtsp.RtspServer;
+import com.invr.store.AppSettingsStore;
 import com.invr.store.RecordingStateStore;
 import com.invr.store.SessionStore;
 import org.springframework.context.annotation.Bean;
@@ -25,13 +26,22 @@ public class NvrConfig {
         return new RecordingStateStore();
     }
 
+    @Bean
+    public AppSettingsStore appSettingsStore() {
+        return new AppSettingsStore();
+    }
+
     @Bean(destroyMethod = "shutdown")
     public StreamHub streamHub() {
         return new StreamHub();
     }
 
     @Bean
-    public RtspServer rtspServer(NvrProperties props, StreamHub hub, CameraConnector connector) {
-        return new RtspServer(props.getRtspPort(), hub, connector);
+    public RtspServer rtspServer(NvrProperties props, StreamHub hub, CameraConnector connector,
+                                 AppSettingsStore appSettingsStore) {
+        // 启动端口：Web 设置（settings.json）优先，缺省回落配置文件 invr.rtsp-port
+        Integer custom = appSettingsStore.rtspPort();
+        int port = (custom != null && custom > 0) ? custom : props.getRtspPort();
+        return new RtspServer(port, hub, connector);
     }
 }
