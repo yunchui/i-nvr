@@ -1,0 +1,27 @@
+#!/bin/bash
+ETC_DIR="${TRIM_PKGETC}"
+VAR_DIR="${TRIM_PKGVAR}"
+mkdir -p "${ETC_DIR}" "${VAR_DIR}/logs" "${VAR_DIR}/data"
+
+# 从 target 目录里的 manifest 读取端口（打包时复制过来的）
+SERVER_PORT=$(grep "^service_port=" "${TRIM_APPDEST}/manifest" | cut -d= -f2)
+SERVER_PORT=${SERVER_PORT:-9080}
+
+# 安装向导里用户输入的 JVM 配置
+JVM_XMX="${wizard_jvm_xmx:-512}"
+JVM_XMS="${wizard_jvm_xms:-128}"
+
+# 生成 Spring Boot 配置（端口从 manifest 读取，和桌面图标一致）
+cat > "${ETC_DIR}/application-fnos.yml" <<EOFCONF
+server:
+  port: ${SERVER_PORT}
+EOFCONF
+
+# 生成 JVM 配置
+cat > "${ETC_DIR}/jvm.conf" <<EOFJVM
+JAVA_OPTS="-Xms${JVM_XMS}m -Xmx${JVM_XMX}m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
+EOFJVM
+
+chmod +x "${TRIM_APPDEST}/jre/bin/"* 2>/dev/null
+
+exit 0

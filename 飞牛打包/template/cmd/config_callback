@@ -1,0 +1,8 @@
+#!/bin/bash
+ETC_DIR="${TRIM_PKGETC}"
+if [ -n "${wizard_jvm_xmx}" ]; then
+  cat > "${ETC_DIR}/jvm.conf" <<EOFJVM
+JAVA_OPTS="-Xms${wizard_jvm_xms:-128}m -Xmx${wizard_jvm_xmx}m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
+EOFJVM
+fi
+exit 0

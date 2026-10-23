@@ -1,0 +1,19 @@
+# ============================================================
+# 应用配置 —— 用记事本打开本文件，修改下面的值
+# ============================================================
+
+appname=com.indsvr.invr
+version=1.0.0
+display_name=iNVR
+desc=小米摄像头的录像机，不限制路数
+platform=x86
+source=thirdparty
+maintainer=indsvr
+distributor=indsvr
+service_port=9099
+checkport=true
+os_min_version=0.9.0
+desktop_uidir=ui
+desktop_applaunchname=com.indsvr.invr.main
+ctl_stop=true
+changelog=Release 1.0.0
