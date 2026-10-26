@@ -9,8 +9,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  *
  * <p>默认拦截 {@code /api/**} 与 {@code /hls/**}（白名单之外的新接口自动受保护），
  * 放行门禁自身、米家登录分步接口、会话探测与登出；静态页面/脚本不在拦截路径内，
- * 保证门禁页本身始终可加载。HLS 由同源 {@code <video>} 发起，会自动携带 JSESSIONID，
- * 故解锁后可正常播放，未解锁则被 401 拒绝。</p>
+ * 保证门禁页本身始终可加载。鉴权不依赖 Cookie：前端 fetch 以 {@code Authorization: Bearer}
+ * 头携带令牌（由 {@link TokenSessionFilter} 解析），HLS 与录像等媒体请求以
+ * {@code ?__invr_t=} 查询参数携带，故页面被跨站 iframe 嵌入时解锁态同样有效。</p>
  */
 @Configuration
 public class WebSecurityConfig implements WebMvcConfigurer {

@@ -192,11 +192,15 @@ body {
 .set-card { background: var(--panel); border-radius: 12px; box-shadow: var(--shadow); padding: 18px 20px; }
 .set-card h3 { margin: 0 0 6px; font-size: 15px; }
 .set-card label { display: block; margin: 16px 0 6px; font-size: 13px; color: #334155; }
-.set-card input[type="text"] {
+.set-card input[type="text"],
+.set-card input[type="number"],
+.set-card input[type="password"] {
     width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
     font-size: 13px; font-family: Consolas, monospace; outline: none;
 }
-.set-card input[type="text"]:focus { border-color: var(--primary); }
+.set-card input[type="text"]:focus,
+.set-card input[type="number"]:focus,
+.set-card input[type="password"]:focus { border-color: var(--primary); }
 .set-path {
     font-family: Consolas, monospace; font-size: 13px; word-break: break-all;
     background: #f1f5f9; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px;
@@ -210,11 +214,7 @@ body {
 .set-kv div:last-child { border-bottom: none; }
 .set-kv b { font-family: Consolas, monospace; font-weight: 600; text-align: right; word-break: break-all; }
 .set-card code { font-family: Consolas, monospace; word-break: break-all; }
-.set-card input[type="number"] {
-    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
-    font-size: 13px; font-family: Consolas, monospace; outline: none;
-}
-.set-card input[type="number"]:focus { border-color: var(--primary); }
+.set-card .link-row input { padding: 7px 9px; font-size: 12px; }
 .set-pick { display: flex; gap: 8px; }
 .set-pick input { flex: 1; min-width: 0; background: #f8fafc; cursor: default; }
 .set-edit { display: flex; gap: 8px; align-items: center; }
@@ -249,3 +249,4 @@ body {
 .dir-status { padding: 0 18px 4px; }
 .dir-selected { margin-bottom: 8px; word-break: break-all; }
 .dir-selected code { font-family: Consolas, monospace; }
+.set-divider { height: 1px; background: var(--line); border: 0; margin: 16px 0; }

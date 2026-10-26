@@ -15,6 +15,8 @@
         pollTimer: null,
         gateTimer: null,
         recoveredOnce: false,
+        // 门禁令牌（内存兜底；主存 localStorage，跨站 iframe 中为分区存储仍可读写）
+        memToken: '',
         // 时间轴回放状态
         pb: {
             inited: false, did: null, dateStr: null,
@@ -38,12 +40,38 @@
         return p.indexOf('/api/access') === 0 || p.indexOf('/api/login') === 0;
     }
 
+    /* ---------- 门禁令牌（不依赖 Cookie，兼容跨站 iframe） ---------- */
+    var TOKEN_KEY = 'invr_access_token';
+    function getToken() {
+        try { return localStorage.getItem(TOKEN_KEY) || state.memToken || ''; }
+        catch (e) { return state.memToken || ''; }
+    }
+    function setToken(t) {
+        state.memToken = t || '';
+        try {
+            if (t) { localStorage.setItem(TOKEN_KEY, t); }
+            else { localStorage.removeItem(TOKEN_KEY); }
+        } catch (e) { /* 存储被禁用时仅用内存兜底 */ }
+    }
+    /** 给无法加自定义头的 URL（<video> 媒体、<a download> 下载）追加令牌查询参数。 */
+    function withToken(path) {
+        var t = getToken();
+        if (!t) { return path; }
+        return path + (path.indexOf('?') >= 0 ? '&' : '?') + '__invr_t=' + encodeURIComponent(t);
+    }
+
     async function api(path, opts) {
         opts = opts || {};
-        var res = await fetch(path, Object.assign({ headers: {} }, opts));
+        opts.headers = Object.assign({}, opts.headers);
+        var tk = getToken();
+        if (tk && !opts.headers['Authorization']) {
+            opts.headers['Authorization'] = 'Bearer ' + tk;
+        }
+        var res = await fetch(path, opts);
         var ct = res.headers.get('content-type') || '';
         if (ct.indexOf('application/json') >= 0) {
             var data = await res.json();
+            if (data && typeof data === 'object' && data.token) { setToken(data.token); }
             if (!res.ok) {
                 var msg = data.error || ('请求失败 HTTP ' + res.status);
                 var err = new Error(msg);
@@ -115,8 +143,6 @@
         $('lockPw').value = '';
         $('lockError').hidden = true;
         $('lockError').textContent = '';
-        $('lockLinkBox').hidden = true;
-        $('lockLinkText').value = '';
         var qs = new URLSearchParams(location.search);
         if (qs.get('unlock_error') === '1') {
             showLockError('解锁链接无效或已失效，请输入访问密码。');
@@ -326,25 +352,29 @@
         route();
     }
 
-    /* 凭访问密码生成一键解锁链接（不改变当前会话状态），展示并供复制。 */
+    /* 凭访问密码生成一键解锁链接（不改变当前会话状态），在设置页展示并供复制。 */
     async function genUnlockLink() {
-        var p = $('lockPw').value;
-        if (!p) { showLockError('请先在上方输入访问密码，再生成解锁链接'); return; }
+        var p = $('setLinkPw').value;
+        if (!p) { showPwError('请输入当前访问密码以生成一键解锁链接'); return; }
         $('btnGenLink').disabled = true;
         try {
             var data = await api('/api/access/unlock-link', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: p })
             });
-            $('lockLinkText').value = location.origin + data.path;
-            $('lockLinkBox').hidden = false;
-            $('lockError').hidden = true;
-        } catch (e) { showLockError(e.message); }
+            $('setLinkText').value = location.origin + data.path;
+            $('setLinkBox').hidden = false;
+            $('setLinkPw').value = '';
+            $('setPwError').hidden = true;
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            showPwError(e.message || '生成失败');
+        }
         finally { $('btnGenLink').disabled = false; }
     }
 
     function copyUnlockLink() {
-        var v = $('lockLinkText').value;
+        var v = $('setLinkText').value;
         if (v) { copyText(v); }
     }
 
@@ -519,7 +549,7 @@
                 '<td>' + fmtTime(r.lastModified) + '</td>' +
                 '<td class="acts">' +
                 '<button class="btn tiny" data-ract="play" data-name="' + esc(r.name) + '">播放</button>' +
-                '<a class="btn tiny" href="/api/recordings/' + encodeURIComponent(r.name) + '?dl=1" download>下载</a>' +
+                '<a class="btn tiny" href="' + withToken('/api/recordings/' + encodeURIComponent(r.name) + '?dl=1') + '" download>下载</a>' +
                 '<button class="btn tiny" data-ract="del" data-name="' + esc(r.name) + '">删除</button>' +
                 '</td></tr>';
         }).join('');
@@ -703,6 +733,44 @@
         }
     }
 
+    function showPwError(msg) {
+        var box = $('setPwError');
+        box.hidden = false;
+        box.textContent = msg;
+    }
+
+    async function changeAccessPassword() {
+        var oldPw = $('setPwOld').value;
+        var newPw = $('setPwNew').value;
+        var newPw2 = $('setPwNew2').value;
+        $('setPwError').hidden = true;
+        $('setPwError').textContent = '';
+        if (!oldPw) { showPwError('请输入当前密码'); return; }
+        if (!newPw || newPw.length < 6) { showPwError('新密码至少 6 位'); return; }
+        if (newPw.length > 64) { showPwError('新密码不能超过 64 位'); return; }
+        if (newPw.trim() === '') { showPwError('新密码不能全为空白字符'); return; }
+        if (newPw !== newPw2) { showPwError('两次输入的新密码不一致'); return; }
+        if (!confirm('确认修改门禁访问密码？\n修改后需用新密码解锁，原一键解锁链接将失效。')) return;
+        var btn = $('btnSavePw');
+        btn.disabled = true;
+        try {
+            var r = await api('/api/settings/password', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw })
+            });
+            $('setPwOld').value = ''; $('setPwNew').value = ''; $('setPwNew2').value = '';
+            toast('门禁密码已修改，当前会话保持登录', 'ok');
+            if (r.unlockPath) {
+                try { prompt('密码已修改。新的一键解锁链接（原链接已失效，可复制保存）：', location.origin + r.unlockPath); } catch (e2) { /* 忽略弹窗受限场景 */ }
+            }
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            showPwError(e.message || '修改失败');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
     /* ---------- 服务器目录选择弹窗 ---------- */
     var dirData = { current: null, parent: null, roots: [], entries: [] };
     var dirPicked = null;
@@ -839,7 +907,8 @@
             if (!$('previewModal').hidden && !video.videoWidth) showPreviewHint(codecHint);
         }, { once: true });
 
-        var url = c.hlsUrl;
+        // 媒体 URL 追加令牌查询参数（原生 HLS 子资源由服务端 m3u8 注入令牌，此处先覆盖 m3u8 本身）
+        var url = withToken(c.hlsUrl);
         if (state.hls) { try { state.hls.destroy(); } catch (e) {} state.hls = null; }
 
         if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -851,7 +920,15 @@
                 }
             });
         } else if (window.Hls && Hls.isSupported()) {
-            var hls = new Hls({ liveSyncDurationCount: 3, lowLatencyMode: false, enableWorker: true });
+            // hls.js：除 m3u8 内 URI 携带令牌外，所有 XHR 再注入 Authorization 头（双保险）
+            var hlsOpts = { liveSyncDurationCount: 3, lowLatencyMode: false, enableWorker: true };
+            var ht = getToken();
+            if (ht) {
+                hlsOpts.xhrSetup = function (xhr) {
+                    try { xhr.setRequestHeader('Authorization', 'Bearer ' + ht); } catch (e) {}
+                };
+            }
+            var hls = new Hls(hlsOpts);
             state.hls = hls;
             hls.loadSource(url);
             hls.attachMedia(video);
@@ -913,7 +990,7 @@
         $('playerTitle').textContent = '录像回放 · ' + name;
         $('playerModal').hidden = false;
         var v = $('playerVideo');
-        v.src = '/api/recordings/' + encodeURIComponent(name);
+        v.src = withToken('/api/recordings/' + encodeURIComponent(name));
         v.play().catch(function () {});
     }
     function closePlayer() {
@@ -1144,7 +1221,7 @@
         pb.pendingOffset = offsetSec || 0;
         var v = $('pbVideo');
         $('pbEmpty').hidden = true;
-        v.src = '/api/recordings/' + encodeURIComponent(s.name);
+        v.src = withToken('/api/recordings/' + encodeURIComponent(s.name));
         v.play().catch(function () {});
         if (s.recording) {
             toast('该段正在录制，播放已写入的部分（到当前进度为止）；看实时画面请用“实时预览”', '');
@@ -1254,6 +1331,7 @@
         $('btnSaveSegment').addEventListener('click', saveSegment);
         $('btnSaveRtsp').addEventListener('click', saveRtsp);
         $('btnSaveRetention').addEventListener('click', saveRetention);
+        $('btnSavePw').addEventListener('click', changeAccessPassword);
 
         // 目录选择弹窗
         $('dirClose').addEventListener('click', closeDirModal);
@@ -1355,6 +1433,14 @@
     /* ---------- 初始化 ---------- */
     async function init() {
         bind();
+        // 一键解锁链接回跳：/?access_token=xxx，落盘令牌后清理地址栏（不依赖 Cookie，
+        // iframe 中同样有效）
+        var qs = new URLSearchParams(location.search);
+        var accessToken = qs.get('access_token');
+        if (accessToken) {
+            setToken(accessToken);
+            history.replaceState(null, '', location.pathname);
+        }
         await refreshGate();
     }
     init();

@@ -1,6 +1,7 @@
 package com.invr.web.api;
 
 import com.invr.rtsp.RtspServer;
+import com.invr.store.AccessKeyStore;
 import com.invr.store.AppSettingsStore;
 import com.invr.web.config.NvrProperties;
 import com.invr.web.service.RecordingService;
@@ -33,13 +34,16 @@ public class SettingsController {
     private final RtspServer rtspServer;
     private final NvrProperties props;
     private final AppSettingsStore settingsStore;
+    private final AccessKeyStore accessKeyStore;
 
     public SettingsController(RecordingService recordingService, RtspServer rtspServer,
-                              NvrProperties props, AppSettingsStore settingsStore) {
+                              NvrProperties props, AppSettingsStore settingsStore,
+                              AccessKeyStore accessKeyStore) {
         this.recordingService = recordingService;
         this.rtspServer = rtspServer;
         this.props = props;
         this.settingsStore = settingsStore;
+        this.accessKeyStore = accessKeyStore;
     }
 
     /** 聚合返回全部设置（录像相关 + 实时 RTSP 端口）。 */
@@ -89,6 +93,28 @@ public class SettingsController {
     public Map<String, Object> updateRetention(@RequestBody(required = false) RetentionRequest req) {
         int days = req == null ? -1 : req.retentionDays();
         return recordingService.updateRetentionDays(days);
+    }
+
+    /** 修改门禁访问密码（已在受保护会话内，需校验当前密码；成功后返回新的一键解锁路径）。 */
+    @PutMapping("/settings/password")
+    public Map<String, Object> changePassword(@RequestBody(required = false) PasswordChangeRequest req) {
+        if (req == null) {
+            throw ApiException.badRequest("缺少请求体");
+        }
+        char[] oldPw = req.oldPassword() == null ? null : req.oldPassword().toCharArray();
+        char[] newPw = req.newPassword() == null ? null : req.newPassword().toCharArray();
+        String token;
+        try {
+            token = accessKeyStore.changePassword(oldPw, newPw);
+        } catch (IllegalArgumentException e) {
+            throw ApiException.badRequest(e.getMessage());
+        } catch (IllegalStateException e) {
+            throw ApiException.conflict(e.getMessage());
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("ok", true);
+        m.put("unlockPath", "/unlock?key=" + token);
+        return m;
     }
 
     /**
@@ -185,5 +211,8 @@ public class SettingsController {
     }
 
     public record RetentionRequest(int retentionDays) {
+    }
+
+    public record PasswordChangeRequest(String oldPassword, String newPassword) {
     }
 }

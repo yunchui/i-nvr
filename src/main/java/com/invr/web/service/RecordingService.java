@@ -42,12 +42,16 @@ import java.util.regex.Pattern;
 public class RecordingService {
 
     private static final Logger log = LoggerFactory.getLogger(RecordingService.class);
-    /** rec-&lt;did&gt;-&lt;序号&gt;-&lt;时间&gt;.mp4 */
+    /**
+     * rec-&lt;did&gt;-&lt;序号&gt;-&lt;时间&gt;.mp4。
+     * 序号用 {@code %03d} 生成（至少 3 位、不足补零），超过 999 后自然变 4 位（1000、1001…），
+     * 故此处按“3 位及以上”匹配，避免长期录像序号超过 999 后无法识别。
+     */
     private static final Pattern FILE_PATTERN =
-            Pattern.compile("rec-(.+?)-\\d{3}-\\d{8}-\\d{6}\\.mp4");
+            Pattern.compile("rec-(.+?)-\\d{3,}-\\d{8}-\\d{6}\\.mp4");
     /** 时间轴用：捕获 did、序号、日期(yyyyMMdd)、时间(HHmmss)。 */
     private static final Pattern TIMELINE_PATTERN =
-            Pattern.compile("rec-(.+?)-(\\d{3})-(\\d{8})-(\\d{6})\\.mp4");
+            Pattern.compile("rec-(.+?)-(\\d{3,})-(\\d{8})-(\\d{6})\\.mp4");
     private static final DateTimeFormatter NAME_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter NAME_TIME = DateTimeFormatter.ofPattern("HHmmss");
     /** 相邻分段起点间隔不超过该值（毫秒）视为同一次连续录像，用于推断中间段时长。 */

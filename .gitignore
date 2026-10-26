@@ -10,3 +10,5 @@ captcha*.png
 # 运行期数据（默认落在运行目录；勿提交密钥/会话与录像）
 .invr/
 recordings/
+飞牛打包/build
+飞牛打包/output

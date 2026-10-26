@@ -1,6 +1,8 @@
 server:
   port: 9080
   servlet:
+    # 门禁会话不依赖 Cookie（改用 Authorization 头 / __invr_t 查询参数的令牌会话），
+    # 因此此处不再配置 session cookie（SameSite/Secure 对跨站 iframe + HTTP 均无法生效）。
     encoding:
       charset: UTF-8
       # 仅强制“请求”编码；不要强制响应编码。force-response=true 时 Tomcat 会给所有响应

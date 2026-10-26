@@ -161,6 +161,47 @@ public class AccessKeyStore {
         return buildUnlockToken(password);
     }
 
+    /**
+     * 在已通过门禁的会话内修改访问密码：先校验当前密码，再用<strong>新随机盐</strong>重新派生落盘。
+     * 成功后返回新的一键解锁令牌（密码改变后旧令牌随之失效）；当前会话的解锁态不受影响。
+     *
+     * @throws IllegalStateException 尚未设置访问密码
+     * @throws IllegalArgumentException 当前密码错误、新密码不合规或与旧密码相同
+     */
+    public synchronized String changePassword(char[] oldPassword, char[] newPassword) {
+        Record r = record;
+        if (r == null) {
+            throw new IllegalStateException("尚未设置访问密码");
+        }
+        if (oldPassword == null || oldPassword.length == 0 || !verify(oldPassword)) {
+            throw new IllegalArgumentException("当前密码错误");
+        }
+        String bad = validate(newPassword);
+        if (bad != null) {
+            throw new IllegalArgumentException(bad);
+        }
+        // 新密码与当前密码相同则拒绝（用旧盐派生后做恒定时间比较）
+        byte[] oldSalt = Base64.getDecoder().decode(r.salt);
+        byte[] oldHash = Base64.getDecoder().decode(r.hash);
+        if (MessageDigest.isEqual(oldHash, pbkdf2(newPassword, oldSalt, r.iterations))) {
+            throw new IllegalArgumentException("新密码不能与当前密码相同");
+        }
+        byte[] salt = new byte[SALT_BYTES];
+        random.nextBytes(salt);
+        byte[] hash = pbkdf2(newPassword, salt, ITERATIONS);
+
+        Record nr = new Record();
+        nr.algo = ALGO;
+        nr.iterations = ITERATIONS;
+        nr.salt = Base64.getEncoder().encodeToString(salt);
+        nr.hash = Base64.getEncoder().encodeToString(hash);
+        nr.urlHash = urlTokenHashB64(newPassword);
+        persist(nr);
+        record = nr;
+        log.info("访问密码已修改（PBKDF2 迭代 {}）", ITERATIONS);
+        return buildUnlockToken(newPassword);
+    }
+
     /** 落盘的是“令牌的 SHA-256”，避免 access.json 中直接存放可立即使用的解锁令牌。 */
     private static String urlTokenHashB64(char[] password) {
         String token = buildUnlockToken(password);

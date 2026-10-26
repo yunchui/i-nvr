@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230891b2'/%3E%3C/svg%3E">
     <title>iNvr · 小米摄像头 NVR</title>
-    <link rel="stylesheet" href="/style.css?v=8">
+    <link rel="stylesheet" href="/style.css?v=11">
 </head>
 <body>
 <header class="topbar">
@@ -79,14 +79,6 @@
             <label>访问密码</label>
             <input type="password" id="lockPw" autocomplete="current-password" placeholder="请输入访问密码">
             <button class="btn primary block" id="btnUnlock">解锁进入</button>
-            <button class="btn ghost block" id="btnGenLink" type="button">生成一键解锁链接</button>
-            <div id="lockLinkBox" class="link-box" hidden>
-                <p class="muted small">下方链接打开即解锁，等同于密码，请妥善保管，勿外发或用于公网：</p>
-                <div class="link-row">
-                    <input type="text" id="lockLinkText" readonly>
-                    <button class="btn tiny" id="btnCopyLink" type="button">复制</button>
-                </div>
-            </div>
             <div id="lockError" class="error-box" hidden></div>
         </div>
     </section>
@@ -207,6 +199,39 @@
                     <p class="muted small" id="setRetentionHint"></p>
                     <div class="set-kv" id="setMisc"></div>
                 </div>
+                <div class="set-card">
+                    <h3>门禁访问密码</h3>
+                    <p class="muted small">进入本系统所需的访问密码（独立于米家账号）。修改后需用新密码重新解锁；原“一键解锁链接”会失效。当前已登录会话不会被退出。</p>
+                    <label>当前密码</label>
+                    <div class="set-edit">
+                        <input type="password" id="setPwOld" autocomplete="current-password" placeholder="请输入当前访问密码">
+                    </div>
+                    <label>新密码（6～64 位，不能全为空白）</label>
+                    <div class="set-edit">
+                        <input type="password" id="setPwNew" autocomplete="new-password" placeholder="请输入新访问密码">
+                    </div>
+                    <label>确认新密码</label>
+                    <div class="set-edit">
+                        <input type="password" id="setPwNew2" autocomplete="new-password" placeholder="请再次输入新密码">
+                    </div>
+                    <div class="set-actions">
+                        <button class="btn primary" id="btnSavePw" type="button">修改密码</button>
+                    </div>
+                    <div id="setPwError" class="error-box" hidden></div>
+                    <div class="set-divider"></div>
+                    <label>一键解锁链接</label>
+                    <p class="muted small">凭当前密码生成免密解锁链接，打开即进入系统，等同于密码，请勿外发或用于公网；修改密码后旧链接失效，需重新生成。</p>
+                    <div class="set-edit">
+                        <input type="password" id="setLinkPw" autocomplete="current-password" placeholder="输入当前访问密码以生成链接">
+                        <button class="btn" id="btnGenLink" type="button">生成链接</button>
+                    </div>
+                    <div id="setLinkBox" class="link-box" hidden style="margin-top:8px;">
+                        <div class="link-row">
+                            <input type="text" id="setLinkText" readonly>
+                            <button class="btn tiny" id="btnCopyLink" type="button">复制</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
@@ -276,6 +301,6 @@
 <div id="toast" class="toast"></div>
 
 <script src="/vendor/hls.min.js"></script>
-<script src="/app.js?v=8"></script>
+<script src="/app.js?v=10"></script>
 </body>
 </html>
