@@ -30,9 +30,13 @@ case $1 in
     chmod +x "${TRIM_APPDEST}/jre/bin/"* 2>/dev/null
     # 切换工作目录到持久化数据目录，这样应用写的 .invr/ 会落在 var 下
     cd "${TRIM_PKGVAR}"
+    # 清理上次残留的 Unix Socket 文件（Tomcat 不允许覆盖已存在的 socket）
+    rm -f "${TRIM_APPDEST}/app.sock"
     nohup "${JAVA_BIN}" ${JAVA_OPTS} -jar "${APP_JAR}" ${SPRING_ARGS} > "${LOG_DIR}/app.log" 2>&1 &
     echo $! > "$PID_FILE"
     sleep 3
+    # 修正 socket 文件权限（系统 umask 会覆盖 Tomcat 设置，nginx 需要 666 才能访问）
+    chmod 666 "${TRIM_APPDEST}/app.sock" 2>/dev/null
     pid=$(cat "$PID_FILE" | tr -d '[:space:]')
     if ! kill -0 "$pid" 2>/dev/null; then
       echo "App failed to start. Check log: ${LOG_DIR}/app.log" > "${TRIM_TEMP_LOGFILE}"

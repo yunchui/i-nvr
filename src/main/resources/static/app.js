@@ -37,7 +37,7 @@
     }
 
     function isGatePath(p) {
-        return p.indexOf('/api/access') === 0 || p.indexOf('/api/login') === 0;
+        return p.indexOf('api/access') === 0 || p.indexOf('api/login') === 0;
     }
 
     /* ---------- 门禁令牌（不依赖 Cookie，兼容跨站 iframe） ---------- */
@@ -182,7 +182,7 @@
 
     async function refreshGate() {
         try {
-            var r = await Promise.all([api('/api/session'), api('/api/access/status')]);
+            var r = await Promise.all([api('api/session'), api('api/access/status')]);
             var s = r[0], a = r[1];
             state.loggedIn = !!s.loggedIn;
             state.userId = s.userId || a.userId || null;
@@ -209,7 +209,7 @@
         if (s.userId) state.userId = s.userId;
         if (s.region) state.region = s.region;
         try {
-            var a = await api('/api/access/status');
+            var a = await api('api/access/status');
             state.accessConfigured = !!a.configured;
             state.unlocked = !!a.unlocked;
             if (a.userId) { state.userId = a.userId; state.region = a.region; }
@@ -244,7 +244,7 @@
             $('loginForm').hidden = true;
             $('twofaPanel').hidden = true;
             $('captchaPanel').hidden = false;
-            $('captchaImg').src = '/api/login/' + state.loginToken + '/captcha?t=' + Date.now();
+            $('captchaImg').src = 'api/login/' + state.loginToken + '/captcha?t=' + Date.now();
             $('captchaCode').focus();
         } else if (s.stage === 'NEED_2FA') {
             $('loginForm').hidden = true;
@@ -273,7 +273,7 @@
         if (!username || !password) { showLoginError('请输入账号和密码'); return; }
         $('btnLogin').disabled = true;
         try {
-            var s = await api('/api/login/start', {
+            var s = await api('api/login/start', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: username, password: password, region: 'cn' })
             });
@@ -286,7 +286,7 @@
         var code = $('captchaCode').value.trim();
         if (!code) { toast('请输入图形验证码', 'err'); return; }
         try {
-            var s = await api('/api/login/' + state.loginToken + '/captcha', {
+            var s = await api('api/login/' + state.loginToken + '/captcha', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code: code })
             });
@@ -298,7 +298,7 @@
         var code = $('verifyCode').value.trim();
         if (!code) { toast('请输入验证码', 'err'); return; }
         try {
-            var s = await api('/api/login/' + state.loginToken + '/verify', {
+            var s = await api('api/login/' + state.loginToken + '/verify', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code: code })
             });
@@ -314,7 +314,7 @@
         if (p1 !== p2) { showSetupError('两次输入的密码不一致'); return; }
         $('btnSetup').disabled = true;
         try {
-            await api('/api/access/setup', {
+            await api('api/access/setup', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: p1 })
             });
@@ -331,12 +331,12 @@
         if (!p) { showLockError('请输入访问密码'); return; }
         $('btnUnlock').disabled = true;
         try {
-            await api('/api/access/unlock', {
+            await api('api/access/unlock', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: p })
             });
             state.unlocked = true;
-            var s = await api('/api/session');
+            var s = await api('api/session');
             state.loggedIn = !!s.loggedIn;
             state.userId = s.userId || state.userId;
             state.region = s.region || state.region;
@@ -347,7 +347,7 @@
     }
 
     async function lockConsole() {
-        try { await api('/api/access/lock', { method: 'POST' }); } catch (e) {}
+        try { await api('api/access/lock', { method: 'POST' }); } catch (e) {}
         state.unlocked = false;
         route();
     }
@@ -358,7 +358,7 @@
         if (!p) { showPwError('请输入当前访问密码以生成一键解锁链接'); return; }
         $('btnGenLink').disabled = true;
         try {
-            var data = await api('/api/access/unlock-link', {
+            var data = await api('api/access/unlock-link', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: p })
             });
@@ -381,7 +381,7 @@
     /* ---------- 设备 ---------- */
     async function loadDevices(forceRefresh) {
         try {
-            var data = await api('/api/devices?refresh=' + (forceRefresh ? 'true' : 'false'));
+            var data = await api('api/devices?refresh=' + (forceRefresh ? 'true' : 'false'));
             var list = data.devices || [];
             var structureChanged = list.length !== state.devices.length ||
                 list.some(function (c) {
@@ -500,7 +500,7 @@
         var seg = state.settings && state.settings.segmentSec;
         if (seg == null) {
             try {
-                state.settings = await api('/api/settings');
+                state.settings = await api('api/settings');
                 seg = state.settings.segmentSec;
             } catch (e) {
                 seg = 120; // 仅用于提示文案兜底，实际录制时长以后端生效配置为准
@@ -508,7 +508,7 @@
         }
         if (!confirm('确认开始录像？将按 ' + formatSeg(seg) + ' 分段保存为 MP4。')) return;
         try {
-            await api('/api/record/' + did + '/start', {
+            await api('api/record/' + did + '/start', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
             });
             toast('录像已开始', 'ok');
@@ -517,7 +517,7 @@
     }
     async function stopRecord(did) {
         try {
-            var r = await api('/api/record/' + did + '/stop', { method: 'POST' });
+            var r = await api('api/record/' + did + '/stop', { method: 'POST' });
             toast('已停止，本段录像已保存（共 ' + (r.segments || 0) + ' 段）', 'ok');
             loadDevices(false); loadRecordings();
         } catch (e) { toast(e.message, 'err'); }
@@ -525,7 +525,7 @@
 
     async function loadRecordings() {
         var filter = $('recFilter').value || '';
-        var url = '/api/recordings' + (filter ? '?did=' + encodeURIComponent(filter) : '');
+        var url = 'api/recordings' + (filter ? '?did=' + encodeURIComponent(filter) : '');
         try {
             // 确保设备名已加载，录像列表才能显示“名称（DID）”而非裸 DID
             if (!state.devices.length) { try { await loadDevices(false); } catch (e2) { /* 忽略，退回显示 DID */ } }
@@ -549,7 +549,7 @@
                 '<td>' + fmtTime(r.lastModified) + '</td>' +
                 '<td class="acts">' +
                 '<button class="btn tiny" data-ract="play" data-name="' + esc(r.name) + '">播放</button>' +
-                '<a class="btn tiny" href="' + withToken('/api/recordings/' + encodeURIComponent(r.name) + '?dl=1') + '" download>下载</a>' +
+                '<a class="btn tiny" href="' + withToken('api/recordings/' + encodeURIComponent(r.name) + '?dl=1') + '" download>下载</a>' +
                 '<button class="btn tiny" data-ract="del" data-name="' + esc(r.name) + '">删除</button>' +
                 '</td></tr>';
         }).join('');
@@ -575,7 +575,7 @@
     async function delRecording(name) {
         if (!confirm('确认删除录像文件？\n' + name)) return;
         try {
-            await api('/api/recordings/' + encodeURIComponent(name), { method: 'DELETE' });
+            await api('api/recordings/' + encodeURIComponent(name), { method: 'DELETE' });
             toast('已删除', 'ok'); loadRecordings();
         } catch (e) { toast(e.message, 'err'); }
     }
@@ -590,7 +590,7 @@
 
     async function loadSettings() {
         try {
-            var s = await api('/api/settings');
+            var s = await api('api/settings');
             state.settings = s;
             $('setCurDir').textContent = s.recordingDir;
             $('setDefaultDir').textContent = s.defaultDir;
@@ -638,7 +638,7 @@
         $('btnSaveDir').disabled = true;
         $('btnResetDir').disabled = true;
         try {
-            var s = await api('/api/settings', {
+            var s = await api('api/settings', {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ recordingDir: val })
             });
@@ -666,7 +666,7 @@
         var btn = $('btnSaveSegment');
         btn.disabled = true;
         try {
-            var s = await api('/api/settings/segment', {
+            var s = await api('api/settings/segment', {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ segmentSec: sec })
             });
@@ -690,7 +690,7 @@
         var btn = $('btnSaveRtsp');
         btn.disabled = true;
         try {
-            var s = await api('/api/settings/rtsp', {
+            var s = await api('api/settings/rtsp', {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ rtspPort: port })
             });
@@ -718,7 +718,7 @@
         var btn = $('btnSaveRetention');
         btn.disabled = true;
         try {
-            var s = await api('/api/settings/retention', {
+            var s = await api('api/settings/retention', {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ retentionDays: days })
             });
@@ -754,7 +754,7 @@
         var btn = $('btnSavePw');
         btn.disabled = true;
         try {
-            var r = await api('/api/settings/password', {
+            var r = await api('api/settings/password', {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw })
             });
@@ -795,7 +795,7 @@
         $('dirStatus').textContent = '';
         try {
             var q = path ? ('?path=' + encodeURIComponent(path)) : '';
-            dirData = await api('/api/settings/browse' + q);
+            dirData = await api('api/settings/browse' + q);
             renderDir();
         } catch (e) {
             if (e.status === 401) { scheduleGateRelock(); closeDirModal(); return; }
@@ -990,7 +990,7 @@
         $('playerTitle').textContent = '录像回放 · ' + name;
         $('playerModal').hidden = false;
         var v = $('playerVideo');
-        v.src = withToken('/api/recordings/' + encodeURIComponent(name));
+        v.src = withToken('api/recordings/' + encodeURIComponent(name));
         v.play().catch(function () {});
     }
     function closePlayer() {
@@ -1054,7 +1054,7 @@
         pb.dayStart = new Date(pb.dateStr + 'T00:00:00').getTime();
         pb.idx = -1; pb.curStart = 0;
         try {
-            var data = await api('/api/timeline/' + encodeURIComponent(pb.did) + '?date=' + encodeURIComponent(pb.dateStr));
+            var data = await api('api/timeline/' + encodeURIComponent(pb.did) + '?date=' + encodeURIComponent(pb.dateStr));
             pb.segs = data.segments || [];
         } catch (e) { pb.segs = []; toast(e.message, 'err'); }
         computeWin(true);
@@ -1078,7 +1078,7 @@
         if (pb.liveBusy || !pb.did) return;
         pb.liveBusy = true;
         try {
-            var data = await api('/api/timeline/' + encodeURIComponent(pb.did)
+            var data = await api('api/timeline/' + encodeURIComponent(pb.did)
                 + '?date=' + encodeURIComponent(pb.dateStr || localDateStr(new Date())));
             var segs = data.segments || [];
             if (tlSig(segs) === tlSig(pb.segs)) return;
@@ -1221,7 +1221,7 @@
         pb.pendingOffset = offsetSec || 0;
         var v = $('pbVideo');
         $('pbEmpty').hidden = true;
-        v.src = withToken('/api/recordings/' + encodeURIComponent(s.name));
+        v.src = withToken('api/recordings/' + encodeURIComponent(s.name));
         v.play().catch(function () {});
         if (s.recording) {
             toast('该段正在录制，播放已写入的部分（到当前进度为止）；看实时画面请用“实时预览”', '');
@@ -1301,12 +1301,12 @@
         $('btnVerify').addEventListener('click', submitVerify);
         $('verifyCode').addEventListener('keydown', function (e) { if (e.key === 'Enter') submitVerify(); });
         $('captchaImg').addEventListener('click', function () {
-            if (state.loginToken) this.src = '/api/login/' + state.loginToken + '/captcha?t=' + Date.now();
+            if (state.loginToken) this.src = 'api/login/' + state.loginToken + '/captcha?t=' + Date.now();
         });
 
         $('btnLogout').addEventListener('click', async function () {
             if (!confirm('确认登出米家账号？本机访问密码仍保留，重新登录后无需再设访问密码。')) return;
-            try { await api('/api/logout', { method: 'POST' }); } catch (e) {}
+            try { await api('api/logout', { method: 'POST' }); } catch (e) {}
             await refreshGate();
         });
         $('btnLock').addEventListener('click', function () { lockConsole(); });
