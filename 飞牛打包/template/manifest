@@ -3,9 +3,9 @@
 # ============================================================
 
 appname=indsvr-invr
-version=1.0.0
+version=1.0.1
 display_name=iNVR
-desc=小米摄像头的录像机，不限制路数
+desc=iNVR 是一款纯 Java 自研的小米 / 米家摄像头网络录像服务（NVR）。通过小米私有 miss/mess + CS2 协议直连接入摄像头，无需开启 RTSP/ONVIF、无需刷固件、不依赖云录像，在 NAS 上提供网页实时预览、标准 RTSP 下行、分段录像与时间轴回放，且不限制摄像头路数。<br /><br /><strong>核心特性</strong><br />· <strong>单通道复用</strong>：网页预览、RTSP、录像任意组合，同一摄像头始终只占用 1 条上游连接，内置 GOP 缓存秒开、断流自动重连<br />· <strong>米家账号登录</strong>：网页端完成登录，凭据加密本地存储、重启免密<br />· <strong>网页实时预览</strong>：HLS over fMP4（CMAF），HEVC/H.264 画面原样、音频转 AAC，浏览器原生播放，约 2–4 秒延迟<br />· <strong>标准 RTSP 下行</strong>：rtsp://主机:9554/摄像头DID，VLC / ffplay 等第三方播放器直接拉流<br />· <strong>分段录像</strong>：fMP4 默认 2 分钟一段、按 IDR 边界对齐，边录边播，崩溃 / 断电只丢最后约 1 个 GOP；服务重启后自动续录<br />· <strong>时间轴回放</strong>：按天时间轴展示录像段，点击任意位置连续播放，支持全天 / 6 小时 / 1 小时缩放与翻页<br />· <strong>访问安全</strong>：访问密码门禁（PBKDF2 加盐哈希），支持一键解锁链接，会话与密码均加密落盘<br />
 platform=x86
 source=thirdparty
 maintainer=indsvr
@@ -16,4 +16,4 @@ os_min_version=0.9.0
 desktop_uidir=ui
 desktop_applaunchname=indsvr-invr.main
 ctl_stop=true
-changelog=Release 1.0.0
+changelog=Release 1.0.1 增加网关访问
