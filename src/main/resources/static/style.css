@@ -54,6 +54,12 @@ body {
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn.rec-on { background: var(--red); border-color: var(--red); color: #fff; }
 .btn.rec-on:hover { background: #b91c1c; color: #fff; }
+/* 浅色区域柔和次要按钮（换链接/换密钥/刷新） */
+.btn.soft { background: #f1f5f9; border-color: #e2e8f0; color: #475569; }
+.btn.soft:hover { background: #ecfeff; border-color: #67e8f9; color: var(--primary-d); }
+/* 浅色区域危险按钮（删除） */
+.btn.soft-danger { background: #fef2f2; border-color: #fecaca; color: var(--red); }
+.btn.soft-danger:hover { background: var(--red); border-color: var(--red); color: #fff; }
 
 /* 登录 */
 .login-wrap { display: flex; justify-content: center; padding-top: 6vh; }
@@ -250,3 +256,67 @@ body {
 .dir-selected { margin-bottom: 8px; word-break: break-all; }
 .dir-selected code { font-family: Consolas, monospace; }
 .set-divider { height: 1px; background: var(--line); border: 0; margin: 16px 0; }
+
+/* ========== 共享看板 ========== */
+.modal-body { padding: 16px 18px; max-height: 72vh; overflow-y: auto; }
+.modal-body > label { display: block; margin: 14px 0 6px; font-size: 13px; color: #334155; font-weight: 600; }
+.modal-body > label:first-child { margin-top: 0; }
+.modal-body input[type="text"],
+.modal-body input[type="datetime-local"] {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+    font-size: 13px; outline: none; background: #fff;
+}
+.modal-body input[type="text"]:focus,
+.modal-body input[type="datetime-local"]:focus { border-color: var(--primary); }
+
+.board-layouts { display: flex; gap: 10px; }
+.layout-opt { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 10px; cursor: pointer; background: #f8fafc; transition: border-color .15s, background .15s; }
+.layout-opt:hover { border-color: var(--primary); }
+.layout-opt input { margin: 0 0 4px; }
+.layout-opt span { font-size: 13px; font-weight: 600; color: #1e293b; }
+.layout-opt small { font-size: 11px; color: var(--muted); }
+.layout-opt:has(input:checked) { border-color: var(--primary); background: #ecfeff; }
+
+.board-slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.board-slot-row { display: flex; align-items: center; gap: 8px; }
+.board-slot-row span { flex: none; width: 96px; font-size: 12px; color: #475569; }
+.board-slot-row .select { flex: 1; min-width: 0; }
+
+/* 凭据展示框（共享链接 / Webhook 密钥） */
+.board-card .board-cred-box { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 10px; background: #f8fafc; }
+.board-card .cred-item { display: flex; flex-direction: column; gap: 5px; }
+.board-card .cred-item label { margin: 0; font-size: 12px; font-weight: 600; color: #475569; }
+.board-card .cred-row { display: flex; gap: 8px; align-items: center; }
+.board-card .cred-row input {
+    flex: 1; min-width: 0;
+    font-family: Consolas, monospace; font-size: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: #fff; color: #334155;
+    cursor: default;
+}
+.board-card .cred-row input:focus { border-color: var(--primary); outline: none; }
+.board-card .cam-actions { flex-wrap: wrap; }
+.board-card .cam-actions .btn { flex: none; }
+
+/* Webhook 调用说明（原生折叠） */
+.webhook-help { border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+.webhook-help summary { padding: 9px 14px; font-size: 13px; font-weight: 600; color: var(--primary-d);
+    cursor: pointer; user-select: none; list-style: none; }
+.webhook-help summary::-webkit-details-marker { display: none; }
+.webhook-help summary::before { content: "\25B8"; display: inline-block; margin-right: 8px; transition: transform .15s; }
+.webhook-help[open] summary::before { transform: rotate(90deg); }
+.webhook-help summary:hover { background: #f8fafc; }
+.webhook-help .help-body { padding: 4px 14px 14px; border-top: 1px solid var(--line); }
+.help-label { font-size: 12px; font-weight: 600; color: #475569; margin: 10px 0 5px; }
+.webhook-help pre { margin: 0; padding: 9px 11px; background: #0f172a; color: #e2e8f0;
+    border-radius: 8px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.6;
+    overflow-x: auto; white-space: pre; word-break: normal; }
+.help-note { margin: 10px 0 0; line-height: 1.6; }
+
+@media (max-width: 640px) {
+    .board-layouts { flex-direction: column; }
+    .board-slots { grid-template-columns: 1fr; }
+}

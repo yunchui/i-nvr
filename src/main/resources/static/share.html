@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>共享看板</title>
+    <style>
+        /* 最小内联样式：资源加载前保持黑屏，避免白屏闪烁 */
+        html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+        #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+            color: #64748b; font-family: sans-serif; font-size: 15px; }
+    </style>
+</head>
+<body>
+<div id="boot">正在加载共享看板…</div>
+
+<!-- 大屏网格容器 -->
+<div id="board" class="board" hidden></div>
+<!-- 事件全屏覆盖层（M3 启用） -->
+<div id="fullscreenLayer" class="fullscreen-layer" hidden></div>
+<!-- 顶部状态条 -->
+<div id="notice" class="notice" hidden></div>
+
+<script>
+/* 引导脚本：从当前 URL 解析站点根（兼容 fnOS 网关前缀）与共享令牌，再动态加载资源 */
+(function () {
+    var m = location.pathname.match(/^(.*?)\/share\/([^/]+)\/?$/);
+    if (!m) {
+        document.getElementById('boot').textContent = '无效的共享地址';
+        return;
+    }
+    var root = m[1] ? m[1] + '/' : '/';
+    window.__SHARE = { root: root, token: m[2] };
+
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = root + 'share.css';
+    document.head.appendChild(link);
+
+    function load(src) {
+        return new Promise(function (resolve, reject) {
+            var s = document.createElement('script');
+            s.src = root + src;
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+        });
+    }
+
+    load('vendor/hls.min.js').then(function () {
+        return load('share.js');
+    }).catch(function () {
+        document.getElementById('boot').textContent = '资源加载失败，将自动重试…';
+        setTimeout(function () { location.reload(); }, 5000);
+    });
+})();
+</script>
+</body>
+</html>

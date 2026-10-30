@@ -1,0 +1,108 @@
+/* iNvr 共享大屏页样式：无人值守、电视展示 */
+
+:root {
+    --line: #1e293b;
+    --primary: #0891b2;
+    --red: #dc2626;
+    --muted: #64748b;
+}
+
+html, body {
+    height: 100%;
+    background: #000;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+/* 网格容器：默认 3×3 轨道，grid4 时由 JS 切换为 2×2 */
+.board {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 2px;
+    background: var(--line);
+}
+.board.layout-grid4 {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+}
+
+/* 单个槽位 */
+.cell {
+    position: relative;
+    background: #000;
+    overflow: hidden;
+}
+.cell video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+}
+
+/* 槽位标题覆盖层 */
+.cell-bar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #e2e8f0;
+    background: linear-gradient(180deg, rgba(0, 0, 0, .65), transparent);
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+}
+.cell-bar .tag {
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: #fff;
+}
+.cell-bar .tag.event { background: var(--red); }
+
+/* 槽位占位（离线/取流失败/加载中） */
+.cell-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+    padding: 12px;
+}
+.cell-placeholder .ico { font-size: 26px; }
+.cell-placeholder.offline { color: #475569; }
+.cell-placeholder.error { color: #b91c1c; }
+.cell-placeholder.empty { color: #334155; }
+
+/* 事件全屏覆盖层 */
+.fullscreen-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: #000;
+}
+.fullscreen-layer[hidden] { display: none; }
+.fullscreen-layer video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* 顶部状态条（连接中断/事件提示） */
+.notice {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 40;
+    padding: 10px 16px;
+    background: rgba(185, 28, 28, .92);
+    color: #fff;
+    font-size: 14px;
+    text-align: center;
+}
+.notice[hidden] { display: none; }
+.notice.info { background: rgba(8, 145, 178, .92); }

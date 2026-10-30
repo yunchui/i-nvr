@@ -31,3 +31,13 @@ invr:
     idle-sec: 25
     # 是否把 Opus 音频转码为 AAC（转码失败自动降级为静音，不影响画面）
     audio: true
+  # 共享看板（免鉴权多宫格展示 + 事件联动）
+  share:
+    # 事件画面持续秒数，到期广播 end 并复原
+    event-duration-sec: 60
+    # SSE 心跳周期（秒），维持长连接
+    sse-heartbeat-sec: 15
+    # 大屏兜底重载周期（秒），0 关闭
+    page-reload-sec: 3600
+    # 展示页配置/设备状态轮询周期（秒，SSE 之外的兜底）
+    config-poll-sec: 60

@@ -14,6 +14,7 @@ public class NvrProperties {
     /** 录像保留天数：0 表示永久保留，不自动清理；>0 时超出该天数的分段自动删除。 */
     private int recordRetentionDays = 0;
     private final Hls hls = new Hls();
+    private final Share share = new Share();
 
     public int getRtspPort() {
         return rtspPort;
@@ -49,6 +50,10 @@ public class NvrProperties {
 
     public Hls getHls() {
         return hls;
+    }
+
+    public Share getShare() {
+        return share;
     }
 
     public static class Hls {
@@ -87,6 +92,50 @@ public class NvrProperties {
 
         public void setAudio(boolean audio) {
             this.audio = audio;
+        }
+    }
+
+    /** 共享看板相关配置（application.yml 中 invr.share.*）。 */
+    public static class Share {
+        /** 事件画面持续秒数，到期广播 end。 */
+        private long eventDurationSec = 60;
+        /** SSE 心跳周期（秒）。 */
+        private long sseHeartbeatSec = 15;
+        /** 展示页配置轮询周期（秒）。 */
+        private long configPollSec = 60;
+        /** 大屏兜底重载周期（秒），0 关闭。 */
+        private long pageReloadSec = 3600;
+
+        public long getEventDurationSec() {
+            return eventDurationSec;
+        }
+
+        public void setEventDurationSec(long eventDurationSec) {
+            this.eventDurationSec = eventDurationSec;
+        }
+
+        public long getSseHeartbeatSec() {
+            return sseHeartbeatSec;
+        }
+
+        public void setSseHeartbeatSec(long sseHeartbeatSec) {
+            this.sseHeartbeatSec = sseHeartbeatSec;
+        }
+
+        public long getConfigPollSec() {
+            return configPollSec;
+        }
+
+        public void setConfigPollSec(long configPollSec) {
+            this.configPollSec = configPollSec;
+        }
+
+        public long getPageReloadSec() {
+            return pageReloadSec;
+        }
+
+        public void setPageReloadSec(long pageReloadSec) {
+            this.pageReloadSec = pageReloadSec;
         }
     }
 }

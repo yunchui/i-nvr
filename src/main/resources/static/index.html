@@ -7,7 +7,7 @@
     <base href="./">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230891b2'/%3E%3C/svg%3E">
     <title>iNvr · 小米摄像头 NVR</title>
-    <link rel="stylesheet" href="style.css?v=11">
+    <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <header class="topbar">
@@ -89,6 +89,7 @@
     <section id="appView" hidden>
         <nav class="tabs">
             <button class="tab active" data-tab="cameras">摄像头</button>
+            <button class="tab" data-tab="boards">共享看板</button>
             <button class="tab" data-tab="recordings">录像文件</button>
             <button class="tab" data-tab="playback">录像回放</button>
             <button class="tab" data-tab="settings">设置</button>
@@ -100,6 +101,18 @@
                 <span class="muted" id="camCount"></span>
             </div>
             <div class="grid" id="deviceGrid"></div>
+        </div>
+
+        <div id="tab-boards" hidden>
+            <div class="section-head">
+                <h2>共享看板</h2>
+                <div>
+                    <button class="btn soft" id="btnBoardRefresh" type="button">&#8635; 刷新</button>
+                    <button class="btn primary" id="btnBoardNew" type="button">新建看板</button>
+                </div>
+            </div>
+            <p class="muted small">配置多宫格并生成免登录共享链接，可直接配置到 Android TV 或其他浏览器长时间展示；外部事件系统可通过 Webhook 驱动画面切换。</p>
+            <div class="grid" id="boardGrid"></div>
         </div>
 
         <div id="tab-recordings" hidden>
@@ -300,9 +313,47 @@
     </div>
 </div>
 
+<!-- 共享看板编辑模态 -->
+<div class="modal-mask" id="boardModal" hidden>
+    <div class="modal modal-lg">
+        <div class="modal-head">
+            <span id="boardModalTitle">新建共享看板</span>
+            <button class="modal-x" id="boardClose" type="button">×</button>
+        </div>
+        <div class="modal-body">
+            <label>看板名称</label>
+            <input type="text" id="boardName" maxlength="64" placeholder="例如：厂区一楼电视墙">
+
+            <label>布局</label>
+            <div class="board-layouts" id="boardLayouts">
+                <label class="layout-opt"><input type="radio" name="boardLayout" value="grid4" checked>
+                    <span>4 宫格</span><small>2×2 等分布局</small></label>
+                <label class="layout-opt"><input type="radio" name="boardLayout" value="grid6">
+                    <span>6 宫格</span><small>1 大 5 小，左上大格</small></label>
+                <label class="layout-opt"><input type="radio" name="boardLayout" value="grid9">
+                    <span>9 宫格</span><small>3×3 等分布局</small></label>
+            </div>
+
+            <label>摄像头分配（按槽位顺序，6 宫格第 1 路为大格主画面）</label>
+            <div class="board-slots" id="boardSlots"></div>
+
+            <label>过期时间（留空表示永久有效）</label>
+            <input type="datetime-local" id="boardExpire">
+
+            <div id="boardError" class="error-box" hidden></div>
+        </div>
+        <div class="modal-foot">
+            <div class="set-actions">
+                <button class="btn primary" id="btnBoardSave" type="button">保存</button>
+                <button class="btn" id="boardCancel" type="button">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script src="vendor/hls.min.js"></script>
-<script src="app.js?v=11"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

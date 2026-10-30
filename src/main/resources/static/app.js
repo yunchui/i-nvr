@@ -11,6 +11,8 @@
         unlocked: false,
         loginToken: null,
         devices: [],
+        boards: [],
+        boardEditId: null,
         hls: null,
         pollTimer: null,
         gateTimer: null,
@@ -166,6 +168,7 @@
         resetLoginPanels();
         loadDevices(true);
         loadRecordings();
+        loadBoards();
         state.pollTimer = setInterval(function () { loadDevices(false); }, 5000);
     }
 
@@ -492,6 +495,211 @@
         if (sec > 0 && sec % 60 === 0) return (sec / 60) + ' 分钟';
         if (sec >= 60) return Math.floor(sec / 60) + ' 分 ' + (sec % 60) + ' 秒';
         return sec + ' 秒';
+    }
+
+    /* ---------- 共享看板 ---------- */
+    var BOARD_LAYOUTS = {
+        grid4: { label: '4 宫格', slots: 4 },
+        grid6: { label: '6 宫格（1 大 5 小）', slots: 6 },
+        grid9: { label: '9 宫格', slots: 9 }
+    };
+
+    /** 基于 <base> 解析共享链接完整 URL（兼容 fnOS 网关前缀）。 */
+    function boardShareUrl(token) {
+        return new URL('share/' + token, document.baseURI).href;
+    }
+
+    /** 基于 <base> 解析 Webhook 完整地址。 */
+    function webhookUrl() {
+        return new URL('share-event', document.baseURI).href;
+    }
+
+    function layoutLabel(layout) {
+        return (BOARD_LAYOUTS[layout] || { label: layout }).label;
+    }
+
+    async function loadBoards() {
+        try {
+            var data = await api('api/boards');
+            state.boards = data.boards || [];
+            renderBoards();
+        } catch (e) {
+            toast('看板加载失败：' + e.message, 'err');
+        }
+    }
+
+    function renderBoards() {
+        var grid = $('boardGrid');
+        if (!state.boards.length) {
+            grid.innerHTML = '<div class="empty">还没有共享看板，点击右上角“新建看板”创建</div>';
+            return;
+        }
+        grid.innerHTML = state.boards.map(boardCardHtml).join('');
+    }
+
+    function boardCardHtml(b) {
+        var statusBadge = b.enabled
+            ? '<span class="badge live">启用中</span>'
+            : '<span class="badge off">已停用</span>';
+        var expire = b.expireAt
+            ? '<span class="muted small">过期时间：' + fmtTime(b.expireAt) + '</span>'
+            : '<span class="muted small">永久有效</span>';
+        return ''
+            + '<div class="cam-card board-card" data-id="' + esc(b.id) + '">'
+            + '  <div class="cam-top"><div class="cam-name"><span class="nm">' + esc(b.name) + '</span>' + statusBadge + '</div></div>'
+            + '  <div class="cam-model">' + esc(layoutLabel(b.layout)) + ' · ' + b.cameras.length + ' 路摄像头</div>'
+            + '  <div class="board-cred-box">'
+            + '    <div class="cred-item">'
+            + '      <label>共享链接（免登录）</label>'
+            + '      <div class="cred-row"><input type="text" readonly value="' + esc(boardShareUrl(b.shareToken)) + '">'
+            + '      <button class="btn tiny" data-bact="copy-link" type="button">复制</button></div>'
+            + '    </div>'
+            + '    <div class="cred-item">'
+            + '      <label>Webhook 密钥（请求头 X-Share-Secret）</label>'
+            + '      <div class="cred-row"><input type="text" readonly value="' + esc(b.webhookSecret) + '">'
+            + '      <button class="btn tiny" data-bact="copy-secret" type="button">复制</button></div>'
+            + '    </div>'
+            + '  </div>'
+            + '  <details class="webhook-help">'
+            + '    <summary>Webhook 调用方式</summary>'
+            + '    <div class="help-body">'
+            + '      <div class="help-label">请求方法与地址</div>'
+            + '      <pre>POST ' + esc(webhookUrl()) + '</pre>'
+            + '      <div class="help-label">请求头</div>'
+            + '      <pre>X-Share-Secret: ' + esc(b.webhookSecret) + '\nContent-Type: application/json</pre>'
+            + '      <div class="help-label">请求体（did 为小米 did，eventType 可选）</div>'
+            + '      <pre>{"did": "1190193414", "eventType": "motion"}</pre>'
+            + '      <p class="muted small help-note">触发后事件摄像头全屏（6 宫格进大格），默认 60 秒后自动复原；窗口内新事件覆盖并重新计时。</p>'
+            + '    </div>'
+            + '  </details>'
+            + '  <div>' + expire + '</div>'
+            + '  <div class="cam-actions">'
+            + '    <button class="btn" data-bact="edit" type="button">编辑</button>'
+            + '    <button class="btn" data-bact="toggle" type="button">' + (b.enabled ? '停用' : '启用') + '</button>'
+            + '    <button class="btn soft" data-bact="rotate-token" type="button">换链接</button>'
+            + '    <button class="btn soft" data-bact="rotate-secret" type="button">换密钥</button>'
+            + '    <button class="btn soft-danger" data-bact="delete" type="button">删除</button>'
+            + '  </div>'
+            + '</div>';
+    }
+
+    /* ----- 编辑模态 ----- */
+    function openBoardModal(id) {
+        state.boardEditId = id || null;
+        var b = id ? state.boards.find(function (x) { return x.id === id; }) : null;
+        $('boardModalTitle').textContent = b ? '编辑共享看板' : '新建共享看板';
+        $('boardName').value = b ? b.name : '';
+        var layout = b ? b.layout : 'grid4';
+        document.querySelectorAll('input[name="boardLayout"]').forEach(function (r) {
+            r.checked = r.value === layout;
+        });
+        renderBoardSlots(layout, b ? b.cameras : null);
+        $('boardExpire').value = (b && b.expireAt) ? toLocalInput(b.expireAt) : '';
+        hideBoardError();
+        $('boardModal').hidden = false;
+    }
+
+    function closeBoardModal() {
+        $('boardModal').hidden = true;
+        state.boardEditId = null;
+    }
+
+    function hideBoardError() {
+        var box = $('boardError');
+        box.hidden = true; box.textContent = '';
+    }
+
+    function showBoardError(m) {
+        var box = $('boardError');
+        box.hidden = false; box.textContent = m;
+    }
+
+    /** 按布局生成槽位下拉；selected 为已选 did 数组（按槽位索引），用于编辑或切换布局时保留。 */
+    function renderBoardSlots(layout, selected) {
+        var n = BOARD_LAYOUTS[layout].slots;
+        var html = '';
+        for (var i = 0; i < n; i++) {
+            var slotName;
+            if (layout === 'grid6') { slotName = i === 0 ? '大格（主画面）' : '小格 ' + i; }
+            else { slotName = '槽位 ' + (i + 1); }
+            var val = (selected && selected.length > i) ? selected[i] : '';
+            html += '<div class="board-slot-row"><span>' + slotName + '</span><select class="select board-slot-sel">'
+                + '<option value="">空置</option>'
+                + state.devices.map(function (c) {
+                    return '<option value="' + esc(c.did) + '"' + (c.did === val ? ' selected' : '') + '>'
+                        + esc(c.name + '（' + c.did + '）') + '</option>';
+                }).join('')
+                + '</select></div>';
+        }
+        $('boardSlots').innerHTML = html;
+    }
+
+    async function saveBoard() {
+        var name = $('boardName').value;
+        var layout = document.querySelector('input[name="boardLayout"]:checked').value;
+        var dids = Array.from(document.querySelectorAll('.board-slot-sel')).map(function (s) {
+            return s.value || null;
+        });
+        var expireVal = $('boardExpire').value;
+        var expireAt = expireVal ? new Date(expireVal).getTime() : null;
+
+        if (!name.trim()) { showBoardError('看板名称不能为空'); return; }
+        var payload = { name: name.trim(), layout: layout, cameras: dids, expireAt: expireAt };
+        try {
+            var path = state.boardEditId ? ('api/boards/' + encodeURIComponent(state.boardEditId)) : 'api/boards';
+            await api(path, {
+                method: state.boardEditId ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            closeBoardModal();
+            await loadBoards();
+            toast('看板已保存', 'ok');
+        } catch (e) {
+            showBoardError(e.message);
+        }
+    }
+
+    async function handleBoardAction(btn) {
+        var card = btn.closest('.board-card');
+        var id = card.getAttribute('data-id');
+        var b = state.boards.find(function (x) { return x.id === id; });
+        var act = btn.getAttribute('data-bact');
+        if (act === 'copy-link') { copyText(boardShareUrl(b.shareToken)); return; }
+        if (act === 'copy-secret') { copyText(b.webhookSecret); return; }
+        if (act === 'edit') { openBoardModal(id); return; }
+        try {
+            if (act === 'toggle') {
+                await api('api/boards/' + encodeURIComponent(id) + '/enabled', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: !b.enabled })
+                });
+                loadBoards();
+            } else if (act === 'rotate-token') {
+                await api('api/boards/' + encodeURIComponent(id) + '/rotate-token', { method: 'POST' });
+                await loadBoards();
+                toast('已生成新共享链接，旧链接失效', 'ok');
+            } else if (act === 'rotate-secret') {
+                await api('api/boards/' + encodeURIComponent(id) + '/rotate-secret', { method: 'POST' });
+                await loadBoards();
+                toast('已生成新 Webhook 密钥', 'ok');
+            } else if (act === 'delete') {
+                if (window.confirm('确定删除看板“' + b.name + '”？共享链接将立即失效。')) {
+                    await api('api/boards/' + encodeURIComponent(id), { method: 'DELETE' });
+                    await loadBoards();
+                }
+            }
+        } catch (e) {
+            toast('操作失败：' + e.message, 'err');
+        }
+    }
+
+    function toLocalInput(ms) {
+        var d = new Date(ms);
+        function p(x) { return String(x).padStart(2, '0'); }
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+            + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
     }
 
     /* ---------- 录像 ---------- */
@@ -1398,9 +1606,11 @@
                 t.classList.add('active');
                 var name = t.getAttribute('data-tab');
                 $('tab-cameras').hidden = name !== 'cameras';
+                $('tab-boards').hidden = name !== 'boards';
                 $('tab-recordings').hidden = name !== 'recordings';
                 $('tab-playback').hidden = name !== 'playback';
                 $('tab-settings').hidden = name !== 'settings';
+                if (name === 'boards') loadBoards();
                 if (name === 'recordings') loadRecordings();
                 if (name === 'playback') enterPlayback();
                 else { pausePb(); stopPbLive(); }
@@ -1417,6 +1627,27 @@
             if (act === 'preview') openPreview(did);
             else if (act === 'recstart') startRecord(did);
             else if (act === 'recstop') stopRecord(did);
+        });
+
+        // 共享看板：卡片操作事件委托
+        $('boardGrid').addEventListener('click', function (e) {
+            var btn = e.target.closest('button[data-bact]');
+            if (btn) handleBoardAction(btn);
+        });
+        $('btnBoardNew').addEventListener('click', function () { openBoardModal(null); });
+        $('btnBoardRefresh').addEventListener('click', loadBoards);
+        $('btnBoardSave').addEventListener('click', saveBoard);
+        $('boardClose').addEventListener('click', closeBoardModal);
+        $('boardCancel').addEventListener('click', closeBoardModal);
+        $('boardModal').addEventListener('click', function (e) {
+            if (e.target === this) closeBoardModal();
+        });
+        // 布局切换：保留同槽位已选摄像头，重新渲染槽位下拉
+        document.querySelectorAll('input[name="boardLayout"]').forEach(function (r) {
+            r.addEventListener('change', function () {
+                var prev = Array.from(document.querySelectorAll('.board-slot-sel')).map(function (s) { return s.value; });
+                renderBoardSlots(r.value, prev);
+            });
         });
 
         $('previewClose').addEventListener('click', closePreview);
