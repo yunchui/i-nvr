@@ -61,6 +61,8 @@ public class NvrProperties {
         private int window = 6;
         private int idleSec = 25;
         private boolean audio = true;
+        /** 是否对在线摄像头预热并保持常驻（点击即播、降低首帧延迟）。 */
+        private boolean prewarm = true;
 
         public int getTargetSec() {
             return targetSec;
@@ -92,6 +94,14 @@ public class NvrProperties {
 
         public void setAudio(boolean audio) {
             this.audio = audio;
+        }
+
+        public boolean isPrewarm() {
+            return prewarm;
+        }
+
+        public void setPrewarm(boolean prewarm) {
+            this.prewarm = prewarm;
         }
     }
 

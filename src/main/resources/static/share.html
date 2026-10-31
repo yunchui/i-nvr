@@ -34,7 +34,7 @@
 
     var link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = root + 'share.css';
+    link.href = root + 'share.css?v=15';
     document.head.appendChild(link);
 
     function load(src) {
@@ -48,7 +48,7 @@
     }
 
     load('vendor/hls.min.js').then(function () {
-        return load('share.js');
+        return load('share.js?v=15');
     }).catch(function () {
         document.getElementById('boot').textContent = '资源加载失败，将自动重试…';
         setTimeout(function () { location.reload(); }, 5000);

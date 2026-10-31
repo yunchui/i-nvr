@@ -226,6 +226,8 @@ body {
 .set-edit { display: flex; gap: 8px; align-items: center; }
 .set-edit input { flex: 1; min-width: 0; }
 .set-edit .btn { white-space: nowrap; }
+.set-check { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: #334155; cursor: pointer; }
+.set-check input[type="checkbox"] { width: 16px; height: 16px; margin: 0; cursor: pointer; flex: none; }
 @media (max-width: 820px) {
     .settings-grid { grid-template-columns: 1fr; }
 }
@@ -298,8 +300,8 @@ body {
     cursor: default;
 }
 .board-card .cred-row input:focus { border-color: var(--primary); outline: none; }
-.board-card .cam-actions { flex-wrap: wrap; }
-.board-card .cam-actions .btn { flex: none; }
+.board-card .cam-actions { flex-wrap: nowrap; gap: 6px; }
+.board-card .cam-actions .btn { flex: 1 1 0; min-width: 0; padding-left: 6px; padding-right: 6px; }
 
 /* Webhook 调用说明（原生折叠） */
 .webhook-help { border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }

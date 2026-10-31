@@ -2,6 +2,8 @@ package com.invr.web.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.invr.model.ShareBoard;
+import com.invr.store.AppSettingsStore;
+import com.invr.web.api.ApiException;
 import com.invr.web.config.NvrProperties;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -27,6 +29,9 @@ import java.util.concurrent.TimeUnit;
  * 写入/覆盖并广播 {@code switch}，到期（generation 匹配）后清除并广播 {@code end}；
  * 窗口内新事件覆盖 did、重置计时。SSE 建连先下发快照，支持展示端刷新/重连恢复；
  * 周期心跳维持长连接。</p>
+ *
+ * <p>事件时长与心跳周期支持在“设置”页运行时修改并持久化（settings.json 优先于 application.yml），
+ * 心跳周期下一轮动态生效，事件时长对下一次触发生效。</p>
  */
 @Service
 public class ShareEventService {
@@ -37,7 +42,8 @@ public class ShareEventService {
     private static final Logger log = LoggerFactory.getLogger(ShareEventService.class);
 
     private final ShareBoardService boards;
-    private final long durationMillis;
+    private final NvrProperties props;
+    private final AppSettingsStore settingsStore;
     private final ObjectMapper mapper = new ObjectMapper();
     private final ScheduledExecutorService scheduler;
 
@@ -46,17 +52,58 @@ public class ShareEventService {
     /** boardId -> SSE 连接组 */
     private final ConcurrentHashMap<String, Set<SseEmitter>> emitterGroups = new ConcurrentHashMap<>();
 
-    public ShareEventService(ShareBoardService boards, NvrProperties props) {
+    public ShareEventService(ShareBoardService boards, NvrProperties props, AppSettingsStore settingsStore) {
         this.boards = boards;
-        NvrProperties.Share cfg = props.getShare();
-        this.durationMillis = cfg.getEventDurationSec() * 1000L;
-        long heartbeatSec = cfg.getSseHeartbeatSec();
+        this.props = props;
+        this.settingsStore = settingsStore;
         this.scheduler = Executors.newScheduledThreadPool(1, r -> {
             Thread t = new Thread(r, "share-event-timer");
             t.setDaemon(true);
             return t;
         });
-        this.scheduler.scheduleAtFixedRate(this::heartbeat, heartbeatSec, heartbeatSec, TimeUnit.SECONDS);
+        // 动态周期心跳：循环内每次读取当前生效的心跳秒数，改设置后下一轮即生效
+        this.scheduler.submit(this::heartbeatLoop);
+    }
+
+    // ===================== 生效参数（Web 设置优先，否则配置默认） =====================
+
+    private long effectiveEventDurationMs() {
+        return effectiveEventDurationSec() * 1000L;
+    }
+
+    private long effectiveEventDurationSec() {
+        Integer c = settingsStore.shareEventDurationSec();
+        return c != null ? c : props.getShare().getEventDurationSec();
+    }
+
+    private long effectiveHeartbeatSec() {
+        Integer c = settingsStore.shareSseHeartbeatSec();
+        return c != null ? c : props.getShare().getSseHeartbeatSec();
+    }
+
+    /** 大屏兜底重载周期（秒，0=关闭），供看板页面下发。 */
+    public long effectivePageReloadSec() {
+        Integer c = settingsStore.sharePageReloadSec();
+        return c != null ? c : props.getShare().getPageReloadSec();
+    }
+
+    /** 看板配置/状态轮询周期（秒），供看板页面下发。 */
+    public long effectiveConfigPollSec() {
+        Integer c = settingsStore.shareConfigPollSec();
+        return c != null ? c : props.getShare().getConfigPollSec();
+    }
+
+    /** 心跳循环：每轮按当前生效周期等待后发送心跳。 */
+    private void heartbeatLoop() {
+        try {
+            while (!Thread.currentThread().isInterrupted()) {
+                long sec = effectiveHeartbeatSec();
+                Thread.sleep((sec > 0 ? sec : 1) * 1000L);
+                heartbeat();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /* ===================== Webhook 触发 ===================== */
@@ -73,14 +120,15 @@ public class ShareEventService {
             return TriggerResult.DID_NOT_IN_BOARD;
         }
 
+        long duration = effectiveEventDurationMs();
         ActiveEvent prev = activeEvents.get(b.id);
         long generation = (prev == null ? 0 : prev.generation) + 1;
-        long expireAt = System.currentTimeMillis() + durationMillis;
+        long expireAt = System.currentTimeMillis() + duration;
         ActiveEvent ev = new ActiveEvent(did, expireAt, generation);
         activeEvents.put(b.id, ev);
 
         broadcast(b.id, switchMessage(ev));
-        scheduler.schedule(() -> expire(b.id, generation), durationMillis, TimeUnit.MILLISECONDS);
+        scheduler.schedule(() -> expire(b.id, generation), duration, TimeUnit.MILLISECONDS);
         log.info("看板 {} 事件触发 did={} generation={}", b.id, did, generation);
         return TriggerResult.OK;
     }
@@ -189,11 +237,57 @@ public class ShareEventService {
         return m;
     }
 
+    // ===================== 设置页：读取 / 更新 =====================
+
+    /** 当前共享看板生效参数与配置默认值（供设置页展示）。 */
+    public Map<String, Object> shareSettingsInfo() {
+        NvrProperties.Share d = props.getShare();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("eventDurationSec", effectiveEventDurationSec());
+        m.put("defaultEventDurationSec", d.getEventDurationSec());
+        m.put("sseHeartbeatSec", effectiveHeartbeatSec());
+        m.put("defaultSseHeartbeatSec", d.getSseHeartbeatSec());
+        m.put("pageReloadSec", effectivePageReloadSec());
+        m.put("defaultPageReloadSec", d.getPageReloadSec());
+        m.put("configPollSec", effectiveConfigPollSec());
+        m.put("defaultConfigPollSec", d.getConfigPollSec());
+        return m;
+    }
+
+    /**
+     * 运行时更新共享看板参数并持久化。事件时长对下一次触发生效，心跳周期下一轮生效，
+     * 看板轮询/兜底重载在大屏下次加载时生效。
+     */
+    public synchronized Map<String, Object> updateShare(long eventDurationSec, long sseHeartbeatSec,
+                                                        long pageReloadSec, long configPollSec) {
+        if (eventDurationSec < 5 || eventDurationSec > 3600) {
+            throw ApiException.badRequest("事件画面时长需在 5～3600 秒之间");
+        }
+        if (sseHeartbeatSec < 1 || sseHeartbeatSec > 300) {
+            throw ApiException.badRequest("SSE 心跳周期需在 1～300 秒之间");
+        }
+        if (pageReloadSec < 0 || pageReloadSec > 86400) {
+            throw ApiException.badRequest("大屏兜底重载周期需在 0～86400 秒之间（0 关闭）");
+        }
+        if (configPollSec < 5 || configPollSec > 3600) {
+            throw ApiException.badRequest("看板配置轮询周期需在 5～3600 秒之间");
+        }
+        NvrProperties.Share d = props.getShare();
+        settingsStore.saveShare(
+                eventDurationSec == d.getEventDurationSec() ? null : (int) eventDurationSec,
+                sseHeartbeatSec == d.getSseHeartbeatSec() ? null : (int) sseHeartbeatSec,
+                pageReloadSec == d.getPageReloadSec() ? null : (int) pageReloadSec,
+                configPollSec == d.getConfigPollSec() ? null : (int) configPollSec);
+        log.info("共享看板参数已更新：事件时长 {}s、心跳 {}s、兜底重载 {}s、配置轮询 {}s",
+                eventDurationSec, sseHeartbeatSec, pageReloadSec, configPollSec);
+        return shareSettingsInfo();
+    }
+
     @PreDestroy
     public void shutdown() {
         scheduler.shutdownNow();
-        for (Set<SseEmitter> group : emitterGroups.values()) {
-            for (SseEmitter emitter : group) {
+        for (Map.Entry<String, Set<SseEmitter>> entry : emitterGroups.entrySet()) {
+            for (SseEmitter emitter : entry.getValue()) {
                 try { emitter.complete(); } catch (Exception e) { /* 忽略 */ }
             }
         }

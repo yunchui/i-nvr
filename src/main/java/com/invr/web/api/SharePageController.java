@@ -6,6 +6,7 @@ import com.invr.model.ShareBoard;
 import com.invr.web.service.BoardLayouts;
 import com.invr.web.service.DeviceCatalog;
 import com.invr.web.service.ShareBoardService;
+import com.invr.web.service.ShareEventService;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -34,10 +35,13 @@ public class SharePageController {
 
     private final ShareBoardService boards;
     private final DeviceCatalog catalog;
+    private final ShareEventService eventService;
 
-    public SharePageController(ShareBoardService boards, DeviceCatalog catalog) {
+    public SharePageController(ShareBoardService boards, DeviceCatalog catalog,
+                               ShareEventService eventService) {
         this.boards = boards;
         this.catalog = catalog;
+        this.eventService = eventService;
     }
 
     @GetMapping("/share/{token}")
@@ -94,6 +98,9 @@ public class SharePageController {
         resp.put("eventsUrl", "share/" + token + "/events");
         resp.put("serverTime", System.currentTimeMillis());
         resp.put("expireAt", b.expireAt);
+        // 看板轮询/兜底重载周期（设置页可配），供 share.js 覆盖内置默认
+        resp.put("configPollSec", eventService.effectiveConfigPollSec());
+        resp.put("pageReloadSec", eventService.effectivePageReloadSec());
         return ResponseEntity.ok(resp);
     }
 

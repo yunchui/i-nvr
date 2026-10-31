@@ -7,7 +7,7 @@
     <base href="./">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230891b2'/%3E%3C/svg%3E">
     <title>iNvr · 小米摄像头 NVR</title>
-    <link rel="stylesheet" href="style.css?v=14">
+    <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <header class="topbar">
@@ -247,6 +247,52 @@
                         </div>
                     </div>
                 </div>
+                <div class="set-card">
+                    <h3>HLS 预览参数</h3>
+                    <p class="muted small">网页 HLS 实时预览的分片与预热设置。保存后立即生效：分片时长/窗口/音频会让正在进行的预览短暂中断后自动恢复；预热开关下一轮自动生效。</p>
+                    <label>HLS 分片时长（秒，1～10；受摄像头 GOP 限制，真机约 3s）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setHlsTargetInput" min="1" max="10" step="1">
+                    </div>
+                    <label>m3u8 窗口分片数（3～20）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setHlsWindowInput" min="3" max="20" step="1">
+                    </div>
+                    <label>空闲回收时间（秒，10～3600；关闭预热时生效）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setHlsIdleInput" min="10" max="3600" step="1">
+                    </div>
+                    <label class="set-check"><input type="checkbox" id="setHlsAudioInput"> 音频转 AAC（关闭则静音）</label>
+                    <label class="set-check"><input type="checkbox" id="setHlsPrewarmInput"> 在线摄像头预热常驻（点击即播、降低首帧延迟）</label>
+                    <div class="set-actions">
+                        <button class="btn primary" id="btnSaveHls" type="button">保存并应用</button>
+                    </div>
+                    <p class="muted small" id="setHlsHint"></p>
+                </div>
+                <div class="set-card">
+                    <h3>共享看板参数</h3>
+                    <p class="muted small">免鉴权共享大屏的事件、心跳与轮询周期。事件时长对下一次触发生效，心跳周期下一轮生效；轮询/兜底重载在大屏下次加载时生效。</p>
+                    <label>事件画面时长（秒，5～3600）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setShareEventInput" min="5" max="3600" step="1">
+                    </div>
+                    <label>SSE 心跳周期（秒，1～300）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setShareHeartbeatInput" min="1" max="300" step="1">
+                    </div>
+                    <label>大屏兜底重载周期（秒，0～86400，0=关闭）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setShareReloadInput" min="0" max="86400" step="1">
+                    </div>
+                    <label>看板配置轮询周期（秒，5～3600）</label>
+                    <div class="set-edit">
+                        <input type="number" id="setSharePollInput" min="5" max="3600" step="1">
+                    </div>
+                    <div class="set-actions">
+                        <button class="btn primary" id="btnSaveShare" type="button">保存并应用</button>
+                    </div>
+                    <p class="muted small" id="setShareHint"></p>
+                </div>
             </div>
         </div>
     </section>
@@ -354,6 +400,6 @@
 <div id="toast" class="toast"></div>
 
 <script src="vendor/hls.min.js"></script>
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

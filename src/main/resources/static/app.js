@@ -826,6 +826,25 @@
                 ? '当前保留最近 ' + s.retentionDays + ' 天，超期录像每小时自动清理（'
                     + (s.retentionCustomized ? '自定义值' : '默认值') + '，默认 ' + s.defaultRetentionDays + ' 天）。'
                 : '当前为永久保存，不自动清理（0 表示永久；默认值为 ' + s.defaultRetentionDays + ' 天）。';
+            // HLS 预览参数
+            var h = s.hls || {};
+            $('setHlsTargetInput').value = h.targetSec;
+            $('setHlsWindowInput').value = h.window;
+            $('setHlsIdleInput').value = h.idleSec;
+            $('setHlsAudioInput').checked = !!h.audio;
+            $('setHlsPrewarmInput').checked = !!h.prewarm;
+            $('setHlsHint').textContent = '默认值：分片 ' + h.defaultTargetSec + 's、窗口 '
+                + h.defaultWindow + '、空闲 ' + h.defaultIdleSec + 's、音频 ' + h.defaultAudio
+                + '、预热 ' + h.defaultPrewarm + '。';
+            // 共享看板参数
+            var sh = s.share || {};
+            $('setShareEventInput').value = sh.eventDurationSec;
+            $('setShareHeartbeatInput').value = sh.sseHeartbeatSec;
+            $('setShareReloadInput').value = sh.pageReloadSec;
+            $('setSharePollInput').value = sh.configPollSec;
+            $('setShareHint').textContent = '默认值：事件 ' + sh.defaultEventDurationSec + 's、心跳 '
+                + sh.defaultSseHeartbeatSec + 's、兜底重载 ' + sh.defaultPageReloadSec + 's、轮询 '
+                + sh.defaultConfigPollSec + 's。';
         } catch (e) {
             if (e.status === 401) return; // 门禁失效由全局逻辑切回解锁页
             toast('加载设置失败：' + e.message, 'err');
@@ -933,6 +952,62 @@
             toast(days === 0 ? '已设置为永久保存' : '保留天数已保存：' + s.retentionDays + ' 天', 'ok');
             await loadSettings();
             loadRecordings();
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            toast('保存失败：' + e.message, 'err');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function saveHls() {
+        var targetSec = parseInt($('setHlsTargetInput').value, 10);
+        var window = parseInt($('setHlsWindowInput').value, 10);
+        var idleSec = parseInt($('setHlsIdleInput').value, 10);
+        if (isNaN(targetSec) || targetSec < 1 || targetSec > 10) { toast('HLS 分片时长需在 1～10 秒之间', 'err'); return; }
+        if (isNaN(window) || window < 3 || window > 20) { toast('HLS 窗口分片数需在 3～20 之间', 'err'); return; }
+        if (isNaN(idleSec) || idleSec < 10 || idleSec > 3600) { toast('HLS 空闲回收秒数需在 10～3600 之间', 'err'); return; }
+        var audio = $('setHlsAudioInput').checked;
+        var prewarm = $('setHlsPrewarmInput').checked;
+        if (!confirm('确认保存 HLS 预览参数？\n分片时长/窗口/音频变更会让正在进行的预览短暂中断后自动恢复。')) return;
+        var btn = $('btnSaveHls');
+        btn.disabled = true;
+        try {
+            await api('api/settings/hls', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetSec: targetSec, window: window, idleSec: idleSec,
+                    audio: audio, prewarm: prewarm })
+            });
+            toast('HLS 预览参数已保存并应用', 'ok');
+            await loadSettings();
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            toast('保存失败：' + e.message, 'err');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function saveShare() {
+        var eventSec = parseInt($('setShareEventInput').value, 10);
+        var heartbeatSec = parseInt($('setShareHeartbeatInput').value, 10);
+        var reloadSec = parseInt($('setShareReloadInput').value, 10);
+        var pollSec = parseInt($('setSharePollInput').value, 10);
+        if (isNaN(eventSec) || eventSec < 5 || eventSec > 3600) { toast('事件画面时长需在 5～3600 秒之间', 'err'); return; }
+        if (isNaN(heartbeatSec) || heartbeatSec < 1 || heartbeatSec > 300) { toast('SSE 心跳周期需在 1～300 秒之间', 'err'); return; }
+        if (isNaN(reloadSec) || reloadSec < 0 || reloadSec > 86400) { toast('大屏兜底重载周期需在 0～86400 秒之间', 'err'); return; }
+        if (isNaN(pollSec) || pollSec < 5 || pollSec > 3600) { toast('看板配置轮询周期需在 5～3600 秒之间', 'err'); return; }
+        if (!confirm('确认保存共享看板参数？')) return;
+        var btn = $('btnSaveShare');
+        btn.disabled = true;
+        try {
+            await api('api/settings/share', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ eventDurationSec: eventSec, sseHeartbeatSec: heartbeatSec,
+                    pageReloadSec: reloadSec, configPollSec: pollSec })
+            });
+            toast('共享看板参数已保存并应用', 'ok');
+            await loadSettings();
         } catch (e) {
             if (e.status === 401) { scheduleGateRelock(); return; }
             toast('保存失败：' + e.message, 'err');
@@ -1066,9 +1141,9 @@
 
     /* ---------- HLS 预览 ---------- */
     // 冷启动时服务端首个 fMP4 分片尚未生成（需先连上摄像头并缓存一个 IDR）。原生 HLS 对
-    // “无 ENDLIST 的直播播放列表”要求至少攒够约 3 个分片才可起播；若在只有 1 个分片时就赋
-    // src，会直接判 MEDIA_ERR_SRC_NOT_SUPPORTED(error4) 且不可恢复。这里串行轮询 m3u8（同时
-    // 也在保活 HLS 订阅），等列表里稳定出现 >=3 个 .m4s 分片后再赋 src 播放。
+    // “无 ENDLIST 的直播播放列表”需要攒够约 3 个分片才可起播；分片不足就赋 src 会直接判
+    // MEDIA_ERR_SRC_NOT_SUPPORTED(error4) 且不可恢复。这里串行轮询 m3u8（同时也在保活 HLS
+    // 订阅），等列表里稳定出现 >=3 个 .m4s 分片后再赋 src 播放。
     function warmHls(u, cb) {
         var done = false, tries = 0;
         function finish() { if (!done) { done = true; cb(); } }
@@ -1076,9 +1151,9 @@
         function once() {
             tries++;
             fetch(u, { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (txt) {
-                if (segCount(txt) >= 3 || tries >= 25) { finish(); }
-                else { setTimeout(once, 600); }
-            }).catch(function () { if (tries >= 25) { finish(); } else { setTimeout(once, 600); } });
+                if (segCount(txt) >= 3 || tries >= 40) { finish(); }
+                else { setTimeout(once, 300); }
+            }).catch(function () { if (tries >= 40) { finish(); } else { setTimeout(once, 300); } });
         }
         once();
     }
@@ -1129,7 +1204,18 @@
             });
         } else if (window.Hls && Hls.isSupported()) {
             // hls.js：除 m3u8 内 URI 携带令牌外，所有 XHR 再注入 Authorization 头（双保险）
-            var hlsOpts = { liveSyncDurationCount: 3, lowLatencyMode: false, enableWorker: true };
+            // 低延迟调优：同步点压到 1 个分片、超 2 个分片即追帧、收紧前后向缓冲（真机分片≈3.2s）
+            var hlsOpts = {
+                liveSyncDurationCount: 1,
+                liveMaxLatencyDurationCount: 2,
+                lowLatencyMode: true,
+                maxLiveSyncPlaybackRate: 1.2,
+                backBufferLength: 30,
+                maxBufferLength: 10,
+                maxMaxBufferLength: 30,
+                startPosition: -1,
+                enableWorker: true
+            };
             var ht = getToken();
             if (ht) {
                 hlsOpts.xhrSetup = function (xhr) {
@@ -1539,6 +1625,8 @@
         $('btnSaveSegment').addEventListener('click', saveSegment);
         $('btnSaveRtsp').addEventListener('click', saveRtsp);
         $('btnSaveRetention').addEventListener('click', saveRetention);
+        $('btnSaveHls').addEventListener('click', saveHls);
+        $('btnSaveShare').addEventListener('click', saveShare);
         $('btnSavePw').addEventListener('click', changeAccessPassword);
 
         // 目录选择弹窗

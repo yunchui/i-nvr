@@ -4,7 +4,9 @@ import com.invr.rtsp.RtspServer;
 import com.invr.store.AccessKeyStore;
 import com.invr.store.AppSettingsStore;
 import com.invr.web.config.NvrProperties;
+import com.invr.web.service.HlsService;
 import com.invr.web.service.RecordingService;
+import com.invr.web.service.ShareEventService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,15 +37,20 @@ public class SettingsController {
     private final NvrProperties props;
     private final AppSettingsStore settingsStore;
     private final AccessKeyStore accessKeyStore;
+    private final HlsService hlsService;
+    private final ShareEventService shareEventService;
 
     public SettingsController(RecordingService recordingService, RtspServer rtspServer,
                               NvrProperties props, AppSettingsStore settingsStore,
-                              AccessKeyStore accessKeyStore) {
+                              AccessKeyStore accessKeyStore,
+                              HlsService hlsService, ShareEventService shareEventService) {
         this.recordingService = recordingService;
         this.rtspServer = rtspServer;
         this.props = props;
         this.settingsStore = settingsStore;
         this.accessKeyStore = accessKeyStore;
+        this.hlsService = hlsService;
+        this.shareEventService = shareEventService;
     }
 
     /** 聚合返回全部设置（录像相关 + 实时 RTSP 端口）。 */
@@ -53,6 +60,8 @@ public class SettingsController {
         m.put("rtspPort", rtspServer.getPort());
         m.put("defaultRtspPort", props.getRtspPort());
         m.put("rtspCustomized", settingsStore.rtspPort() != null);
+        m.put("hls", hlsService.hlsSettingsInfo());
+        m.put("share", shareEventService.shareSettingsInfo());
         return m;
     }
 
@@ -93,6 +102,27 @@ public class SettingsController {
     public Map<String, Object> updateRetention(@RequestBody(required = false) RetentionRequest req) {
         int days = req == null ? -1 : req.retentionDays();
         return recordingService.updateRetentionDays(days);
+    }
+
+    /** 修改 HLS 预览参数（分片时长/窗口/空闲/音频/预热），运行时生效并持久化。 */
+    @PutMapping("/settings/hls")
+    public Map<String, Object> updateHls(@RequestBody(required = false) HlsSettingsRequest req) {
+        if (req == null) {
+            throw ApiException.badRequest("缺少请求体");
+        }
+        hlsService.updateHls(req.targetSec(), req.window(), req.idleSec(), req.audio(), req.prewarm());
+        return getSettings();
+    }
+
+    /** 修改共享看板参数（事件时长/心跳/兜底重载/配置轮询），运行时生效并持久化。 */
+    @PutMapping("/settings/share")
+    public Map<String, Object> updateShare(@RequestBody(required = false) ShareSettingsRequest req) {
+        if (req == null) {
+            throw ApiException.badRequest("缺少请求体");
+        }
+        shareEventService.updateShare(req.eventDurationSec(), req.sseHeartbeatSec(),
+                req.pageReloadSec(), req.configPollSec());
+        return getSettings();
     }
 
     /** 修改门禁访问密码（已在受保护会话内，需校验当前密码；成功后返回新的一键解锁路径）。 */
@@ -214,5 +244,13 @@ public class SettingsController {
     }
 
     public record PasswordChangeRequest(String oldPassword, String newPassword) {
+    }
+
+    public record HlsSettingsRequest(int targetSec, int window, int idleSec,
+                                     boolean audio, boolean prewarm) {
+    }
+
+    public record ShareSettingsRequest(long eventDurationSec, long sseHeartbeatSec,
+                                       long pageReloadSec, long configPollSec) {
     }
 }

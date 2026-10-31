@@ -6,7 +6,7 @@
     var ROOT = share.root;
     var TOKEN = share.token;
 
-    /* 轮询与兜底周期（秒），与设计文档默认值一致 */
+    /* 轮询与兜底周期（秒）：内置默认值，拉取看板配置后用服务端生效值覆盖（设置页可配） */
     var CONFIG_POLL_SEC = 60;
     var PAGE_RELOAD_SEC = 3600;
 
@@ -422,12 +422,17 @@
                 return;
             }
             board = b;
+            // 用服务端生效的周期覆盖内置默认（pageReloadSec=0 表示关闭兜底重载）
+            if (b.configPollSec > 0) { CONFIG_POLL_SEC = b.configPollSec; }
+            PAGE_RELOAD_SEC = b.pageReloadSec > 0 ? b.pageReloadSec : 0;
             render(b);
             connectSSE();
 
             setInterval(reconcile, CONFIG_POLL_SEC * 1000);
-            /* 兜底重载：防止长期运行内存膨胀/假死 */
-            setTimeout(function () { location.reload(); }, PAGE_RELOAD_SEC * 1000);
+            /* 兜底重载：防止长期运行内存膨胀/假死；周期为 0 时不设定时器 */
+            if (PAGE_RELOAD_SEC > 0) {
+                setTimeout(function () { location.reload(); }, PAGE_RELOAD_SEC * 1000);
+            }
         } catch (e) {
             document.getElementById('boot').textContent = '加载失败，自动重试…';
             setTimeout(function () { location.reload(); }, 5000);
