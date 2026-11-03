@@ -486,6 +486,46 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 }
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
+/* ---------- Hero 次级文字链接 ---------- */
+.hero-links{margin-top:16px;display:flex;flex-wrap:wrap;gap:20px}
+.hero-links a{
+  font-size:13.5px;color:var(--muted);
+  display:inline-flex;align-items:center;gap:6px;
+  border-bottom:1px solid transparent;padding-bottom:2px;transition:.15s;
+}
+.hero-links a:hover{color:var(--teal-300);border-bottom-color:var(--teal-500)}
+
+/* ---------- 下载区 ---------- */
+.dl-grid{display:grid;grid-template-columns:1fr;gap:14px}
+.dl-card{
+  background:var(--ink-850);border:1px solid var(--line);border-radius:14px;
+  padding:22px 20px;display:flex;flex-direction:column;
+}
+.dl-card.featured{
+  border-color:rgba(47,199,224,.38);
+  background:linear-gradient(180deg,rgba(14,165,196,.09),var(--ink-850) 65%);
+}
+.dl-head{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.dl-ico{
+  width:42px;height:42px;border-radius:11px;flex:none;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(14,165,196,.13);color:var(--teal-300);
+}
+.dl-name{font-weight:700;font-size:16px;line-height:1.3}
+.dl-meta{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:3px}
+.dl-desc{font-size:13px;color:var(--muted);line-height:1.65;flex:1;margin-bottom:16px}
+.dl-actions{display:flex;flex-direction:column;gap:9px}
+.dl-file{
+  font-family:var(--mono);font-size:11px;color:var(--muted);
+  display:flex;align-items:center;gap:6px;
+}
+.btn-block{width:100%}
+.dl-section-title{
+  font-family:var(--mono);font-size:12px;letter-spacing:.14em;font-weight:600;
+  color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:10px;
+}
+.dl-section-title::after{content:"";flex:1;height:1px;background:var(--line)}
+
 /* ============================================================
    响应式：桌面增强（默认样式为窄屏）
    ============================================================ */
@@ -537,6 +577,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   .consumer.on::before{background:var(--teal-500)}
   .demo-notes{grid-template-columns:repeat(3,1fr)}
   .steps{grid-template-columns:repeat(3,1fr)}
+  .dl-grid{grid-template-columns:repeat(3,1fr)}
 }
 @media (min-width:960px){
   .hero-layout{flex-direction:row;align-items:center;gap:48px}
@@ -610,8 +651,22 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
       <h1>小米摄像头的录像，<br><span class="accent">自己说了算</span></h1>
       <p class="hero-desc">iNvr 是纯 Java 自研的小米摄像头网络录像服务。通过小米私有 miss/mess + CS2 协议直连接入摄像头，向下提供网页实时预览、标准 RTSP、分段录像与时间轴回放——无需刷固件，不依赖云录像，也没有外部流媒体进程。</p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="#start">快速开始</a>
-        <a class="btn btn-ghost" href="#screens">查看界面</a>
+        <a class="btn btn-primary" href="https://fn.indsvr.com/s/0f443151720840d0aa" target="_blank" rel="noopener">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          飞牛 FPK 下载
+        </a>
+        <a class="btn btn-ghost" href="https://fn.indsvr.com/s/bd5cbd9ff6d34bf6b5" target="_blank" rel="noopener">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Jar 下载
+        </a>
+        <a class="btn btn-ghost" href="https://gitee.com/indsvr/i-nvr" target="_blank" rel="noopener">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.2 7.2c2 .8 4.3 1 6.3.8M8.2 16.8c2.4-1 4.7-1.3 7.3-2.4"/></svg>
+          Gitee 仓库
+        </a>
+      </div>
+      <div class="hero-links">
+        <a href="#start">快速开始</a>
+        <a href="#screens">查看界面</a>
       </div>
       <div class="hero-stats">
         <div class="hero-stat"><div class="v">1 条</div><div class="l">上游连接，多路复用</div></div>
@@ -921,9 +976,60 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     <div class="sec-head">
       <div class="sec-kicker">QUICK START</div>
       <h2 class="sec-title">三步跑起来</h2>
-      <p class="sec-sub">环境要求：JDK 17 或以上（JDK 21 亦可）、Maven。仓库内置阿里云镜像配置，不污染全局设置。</p>
+      <p class="sec-sub">环境要求：JDK 17 或以上（JDK 21 亦可）、Maven。仓库内置阿里云镜像配置，不污染全局设置。也可以直接下载安装包，跳过构建。</p>
     </div>
-    <div class="steps">
+    <div class="dl-section-title">DOWNLOADS · 下载安装包</div>
+    <div class="dl-grid">
+      <div class="dl-card featured">
+        <div class="dl-head">
+          <span class="dl-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6.5" rx="2"/><rect x="3" y="13.5" width="18" height="6.5" rx="2"/><path d="M7 7.2h.01M7 16.7h.01"/></svg></span>
+          <div>
+            <div class="dl-name">飞牛 fnOS 安装包</div>
+            <div class="dl-meta">indsvr-invr.fpk · 134.5 MB</div>
+          </div>
+        </div>
+        <p class="dl-desc">.fpk 应用安装包，自带 Linux x64 JRE，在飞牛 NAS 手动安装即可运行，无需自备 Java 环境，含完整 Web 控制台与 RTSP 服务。</p>
+        <div class="dl-actions">
+          <a class="btn btn-primary btn-block" href="https://fn.indsvr.com/s/0f443151720840d0aa" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            下载 FPK
+          </a>
+        </div>
+      </div>
+      <div class="dl-card">
+        <div class="dl-head">
+          <span class="dl-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg></span>
+          <div>
+            <div class="dl-name">可执行 Jar 包</div>
+            <div class="dl-meta">invr.jar · 78.7 MB</div>
+          </div>
+        </div>
+        <p class="dl-desc">Spring Boot fat jar，内嵌 FFmpeg native（Windows / Linux x86_64 双平台），需自备 JDK 17+，一条 java -jar 即可启动。</p>
+        <div class="dl-actions">
+          <a class="btn btn-ghost btn-block" href="https://fn.indsvr.com/s/bd5cbd9ff6d34bf6b5" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            下载 Jar
+          </a>
+        </div>
+      </div>
+      <div class="dl-card">
+        <div class="dl-head">
+          <span class="dl-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.2 7.2c2 .8 4.3 1 6.3.8M8.2 16.8c2.4-1 4.7-1.3 7.3-2.4"/></svg></span>
+          <div>
+            <div class="dl-name">Gitee 源码仓库</div>
+            <div class="dl-meta">gitee.com/indsvr/i-nvr</div>
+          </div>
+        </div>
+        <p class="dl-desc">完整源码、Maven 构建配置与飞牛打包工程。可自行 mvn package 构建，也可查阅协议设计文档与提交历史、反馈 Issue。</p>
+        <div class="dl-actions">
+          <a class="btn btn-ghost btn-block" href="https://gitee.com/indsvr/i-nvr" target="_blank" rel="noopener">
+            前往 Gitee
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="steps" style="margin-top:28px">
       <div class="step">
         <span class="s-no">1</span>
         <div><b>构建</b><span>一条命令打包，fat jar 已内嵌 FFmpeg native，无需另装流媒体服务。</span></div>
@@ -1049,7 +1155,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
       </div>
       <div class="footer-cols">
         <div class="footer-col">
-          <h4>文档</h4>
+          <h4>资源</h4>
+          <a href="https://gitee.com/indsvr/i-nvr" target="_blank" rel="noopener">Gitee 源码仓库</a>
           <a href="../docs/design/01-xiaomi-protocol-design.md">协议设计文档</a>
           <a href="../README.md">README</a>
           <a href="../docs/README-M1.md">M1 阶段归档</a>
