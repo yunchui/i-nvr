@@ -1,5 +1,6 @@
 # iNvr · 小米摄像头 NVR
-
+本项目来源：https://gitee.com/indsvr/i-nvr
+发布github 加入fndepot 便于版本管理
 > 纯 Java 自研的小米摄像头网络录像服务（NVR）。通过小米私有 **miss/mess + CS2** 协议直连接入摄像头，向下提供 **Web 实时预览、标准 RTSP、分段录像、时间轴回放**；同一摄像头无论被多少路预览 / 录像 / RTSP 使用，**只占用 1 条上游连接**。
 
 `Java 17` · `Spring Boot 3` · `Netty` · `JavaCV(FFmpeg)` · 无外部流媒体进程 · 无需刷固件
@@ -207,6 +208,7 @@ src/main/java/com/invr/
 - 本项目**仅用于接入本人自有摄像头，并在局域网 / 受信网络内使用**，请勿用于监控他人或违反当地法律法规。
 - 这是一个**非官方逆向协议实现**，不提供任何可用性保证；小米云端或固件升级可能导致协议失效，需自行评估使用风险。
 - 协议实现参考了 [go2rtc](https://github.com/AlexxIT/go2rtc)（MIT，仅作协议蓝本）与 MiBeeNVR 的架构思路（AGPL-3.0，未直接使用其代码）。
+- 原作者官网：https://invr-release.indsvr.com/
 
 ## 相关文档
 
