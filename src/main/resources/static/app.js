@@ -1158,6 +1158,119 @@
         once();
     }
 
+    /* Chromium 内核（Edge/Chrome/内置浏览器）：其原生 MediaFoundation HLS 在长期运行遇停滞时
+       会产生缓冲空洞且无法自愈，故优先 hls.js(MSE)；Safari 等保留原生优先。 */
+    function isChromium() {
+        return /Chrome\//.test(navigator.userAgent);
+    }
+
+    /* 预览 hls.js（MSE）挂载：低延迟调优 + 令牌注入 + 致命错误恢复，返回 hls 实例 */
+    function mountPreviewMse(video, url) {
+        // 除 m3u8 内 URI 携带令牌外，所有 XHR 再注入 Authorization 头（双保险）
+        // 低延迟调优：同步点压到 1 个分片、超 2 个分片即追帧、收紧前后向缓冲（真机分片≈3.2s）
+        var hlsOpts = {
+            liveSyncDurationCount: 1,
+            liveMaxLatencyDurationCount: 2,
+            lowLatencyMode: true,
+            maxLiveSyncPlaybackRate: 1.2,
+            backBufferLength: 30,
+            maxBufferLength: 10,
+            maxMaxBufferLength: 30,
+            startPosition: -1,
+            enableWorker: true
+        };
+        var ht = getToken();
+        if (ht) {
+            hlsOpts.xhrSetup = function (xhr) {
+                try { xhr.setRequestHeader('Authorization', 'Bearer ' + ht); } catch (e) {}
+            };
+        }
+        var hls = new Hls(hlsOpts);
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+            video.play().catch(function () {});
+        });
+        hls.on(Hls.Events.ERROR, function (evt, data) {
+            if (!data.fatal) return;
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                if (!state.recoveredOnce) { state.recoveredOnce = true; hls.startLoad(); }
+                else showPreviewHint('取流中断，已尝试重连失败。请关闭后重新预览，或用 RTSP 在 VLC 播放。');
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                var codecFail = data.details === Hls.ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR ||
+                    data.details === Hls.ErrorDetails.BUFFER_ADD_CODEC_ERROR;
+                if (codecFail) {
+                    showPreviewHint('当前浏览器无法解码 H.265(HEVC)。\n请使用 Edge / 安装「HEVC 视频扩展」，或复制下方 RTSP 地址用 VLC 播放。');
+                    hls.destroy();
+                } else if (!state.recoveredOnce) {
+                    state.recoveredOnce = true;
+                    try { hls.recoverMediaError(); } catch (e) {
+                        showPreviewHint('视频解码失败，建议用 RTSP 在 VLC 播放。');
+                    }
+                } else {
+                    showPreviewHint('视频解码失败，建议复制下方 RTSP 地址用 VLC 播放。');
+                }
+            } else {
+                showPreviewHint('播放失败：' + (data.details || '未知错误') + '。可改用 RTSP 在 VLC 播放。');
+            }
+        });
+        return hls;
+    }
+
+    /* 按浏览器能力选择路径并挂载：hls.js 优先（Chromium），原生降级；返回 hls 实例 / null（原生）/ undefined（不支持） */
+    function mountPreviewPlayer(video, url) {
+        if (window.Hls && Hls.isSupported() && isChromium()) {
+            state.hls = mountPreviewMse(video, url);
+            return state.hls;
+        }
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari / Edge 原生 HLS：先预热等首个 fMP4 分片生成，再赋 src 播放
+            warmHls(url, function () {
+                if (!$('previewModal').hidden) {
+                    video.src = url;
+                    video.play().catch(function () {});
+                }
+            });
+            return null;
+        }
+        if (window.Hls && Hls.isSupported()) {
+            state.hls = mountPreviewMse(video, url);
+            return state.hls;
+        }
+        return undefined;
+    }
+
+    /* 预览看门狗回调：销毁旧会话并清理 video，再按当前能力重新挂载，随后重建看门狗 */
+    function remountPreview(video, url) {
+        stopPreviewWatchdog();
+        if (state.hls) { try { state.hls.destroy(); } catch (e) {} state.hls = null; }
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        mountPreviewPlayer(video, url);
+        startPreviewWatchdog(video, url);
+    }
+
+    function startPreviewWatchdog(video, url) {
+        stopPreviewWatchdog();
+        // getLatency/seekLive 闭包引用 state.hls，remount 后 state.hls 更新为新实例，回调始终读到当前会话
+        state.previewWd = Watchdog.start(video, function () { remountPreview(video, url); }, {
+            getLatency: function () {
+                return state.hls ? state.hls.latency : null;
+            },
+            seekLive: function () {
+                if (state.hls && isFinite(state.hls.liveSyncPosition)) {
+                    video.currentTime = state.hls.liveSyncPosition;
+                }
+            }
+        });
+        video.getWatchdogState = state.previewWd.getState; // 可观测性：便于 CDP 验收与运维排查
+    }
+
+    function stopPreviewWatchdog() {
+        if (state.previewWd) { state.previewWd.stop(); state.previewWd = null; }
+    }
+
     function openPreview(did) {
         var c = findDevice(did);
         if (!c) { toast('设备信息缺失', 'err'); return; }
@@ -1194,66 +1307,13 @@
         var url = withToken(c.hlsUrl);
         if (state.hls) { try { state.hls.destroy(); } catch (e) {} state.hls = null; }
 
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Safari / Edge 原生 HLS：先预热等首个 fMP4 分片生成，再赋 src 播放
-            warmHls(url, function () {
-                if (!$('previewModal').hidden) {
-                    video.src = url;
-                    video.play().catch(function () {});
-                }
-            });
-        } else if (window.Hls && Hls.isSupported()) {
-            // hls.js：除 m3u8 内 URI 携带令牌外，所有 XHR 再注入 Authorization 头（双保险）
-            // 低延迟调优：同步点压到 1 个分片、超 2 个分片即追帧、收紧前后向缓冲（真机分片≈3.2s）
-            var hlsOpts = {
-                liveSyncDurationCount: 1,
-                liveMaxLatencyDurationCount: 2,
-                lowLatencyMode: true,
-                maxLiveSyncPlaybackRate: 1.2,
-                backBufferLength: 30,
-                maxBufferLength: 10,
-                maxMaxBufferLength: 30,
-                startPosition: -1,
-                enableWorker: true
-            };
-            var ht = getToken();
-            if (ht) {
-                hlsOpts.xhrSetup = function (xhr) {
-                    try { xhr.setRequestHeader('Authorization', 'Bearer ' + ht); } catch (e) {}
-                };
-            }
-            var hls = new Hls(hlsOpts);
-            state.hls = hls;
-            hls.loadSource(url);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                video.play().catch(function () {});
-            });
-            hls.on(Hls.Events.ERROR, function (evt, data) {
-                if (!data.fatal) return;
-                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                    if (!state.recoveredOnce) { state.recoveredOnce = true; hls.startLoad(); }
-                    else showPreviewHint('取流中断，已尝试重连失败。请关闭后重新预览，或用 RTSP 在 VLC 播放。');
-                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                    var codecFail = data.details === Hls.ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR ||
-                        data.details === Hls.ErrorDetails.BUFFER_ADD_CODEC_ERROR;
-                    if (codecFail) {
-                        showPreviewHint('当前浏览器无法解码 H.265(HEVC)。\n请使用 Edge / 安装「HEVC 视频扩展」，或复制下方 RTSP 地址用 VLC 播放。');
-                        hls.destroy();
-                    } else if (!state.recoveredOnce) {
-                        state.recoveredOnce = true;
-                        try { hls.recoverMediaError(); } catch (e) {
-                            showPreviewHint('视频解码失败，建议用 RTSP 在 VLC 播放。');
-                        }
-                    } else {
-                        showPreviewHint('视频解码失败，建议复制下方 RTSP 地址用 VLC 播放。');
-                    }
-                } else {
-                    showPreviewHint('播放失败：' + (data.details || '未知错误') + '。可改用 RTSP 在 VLC 播放。');
-                }
-            });
-        } else {
+        // 按浏览器能力选择路径：Chromium 优先 hls.js(MSE)，原生降级；不支持则明确提示
+        var mountResult = mountPreviewPlayer(video, url);
+        if (mountResult === undefined) {
             showPreviewHint('当前浏览器不支持 HLS 播放，请复制下方 RTSP 地址用 VLC 播放。');
+        } else {
+            // 长期运行看门狗：停滞/错误自动重新挂载（带退避），与首帧看门狗 previewWatch 相互独立
+            startPreviewWatchdog(video, url);
         }
     }
     function showPreviewHint(text) {
@@ -1267,6 +1327,7 @@
         $('previewModal').hidden = true;
         var video = $('previewVideo');
         if (state.previewWatch) { clearTimeout(state.previewWatch); state.previewWatch = null; }
+        stopPreviewWatchdog();
         if (state.hls) { try { state.hls.destroy(); } catch (e) {} state.hls = null; }
         video.pause();
         video.removeAttribute('src');

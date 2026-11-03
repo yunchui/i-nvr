@@ -100,6 +100,7 @@
     }
 
     function attachHls(rec) {
+        stopWatchdog(rec);
         rec.hls = mountHls(rec.video, full(rec.hlsUrl), function () {
             scheduleRetry(rec);
         });
@@ -110,9 +111,41 @@
         rec.video.addEventListener('playing', function () {
             if (rec.online) { clearPlaceholder(rec.cell); }
         });
+        // 看门狗：停滞/错误/画面冻结/墙钟延迟过大时自动处理（video 元素不变，仅重建播放会话）。
+        // getLatency/seekLive 闭包引用 rec，remount 后 rec.hls 更新为新实例，回调始终读到当前会话。
+        rec.wd = Watchdog.start(rec.video, function () { remountRec(rec); }, {
+            getLatency: function () {
+                return rec.hls ? rec.hls.latency : null;
+            },
+            seekLive: function () {
+                if (rec.hls && isFinite(rec.hls.liveSyncPosition)) {
+                    rec.video.currentTime = rec.hls.liveSyncPosition;
+                }
+            }
+        });
+        rec.video.getWatchdogState = rec.wd.getState; // 可观测性：便于 CDP 验收与运维排查
+    }
+
+    function stopWatchdog(rec) {
+        if (rec.wd) { rec.wd.stop(); rec.wd = null; }
+    }
+
+    /* 看门狗回调：销毁旧播放会话并清理 video，再重新挂载（实测可 100% 恢复 err=4 卡死） */
+    function remountRec(rec) {
+        if (rec.hls) {
+            try { rec.hls.destroy(); } catch (e) { /* 忽略 */ }
+            rec.hls = null;
+        }
+        if (rec.video) {
+            rec.video.pause();
+            rec.video.removeAttribute('src');
+            rec.video.load();
+        }
+        attachHls(rec);
     }
 
     function destroyPlayer(rec) {
+        stopWatchdog(rec);
         if (rec.hls) {
             try { rec.hls.destroy(); } catch (e) { /* 忽略 */ }
         }
@@ -137,28 +170,56 @@
 
     /* ===================== 通用 HLS 挂载（网格/全屏复用） ===================== */
 
+    /* Chromium 内核（Edge/Chrome/内置浏览器）：其原生 MediaFoundation HLS 在长期运行遇停滞时
+       会产生缓冲空洞且无法自愈，故优先 hls.js(MSE)；Safari 等保留原生优先。 */
+    function isChromium() {
+        return /Chrome\//.test(navigator.userAgent);
+    }
+
+    function mountMse(video, src, onFatal) {
+        // 低延迟直播调优：同步点 2 分片、超 4 分片即 seek 回 live edge、轻微落后时加速追赶；
+        // 冷启动若因 3.5K 软解慢错过 live edge 锚定，最大延迟追帧会把播放位置拉回，避免固定 50s+ 延迟。
+        var hls = new Hls({
+            liveSyncDurationCount: 2,
+            liveMaxLatencyDurationCount: 4,
+            maxLiveSyncPlaybackRate: 1.3,
+            lowLatencyMode: true,
+            startPosition: -1,
+            backBufferLength: 30,
+            maxBufferLength: 10,
+            maxMaxBufferLength: 30,
+            enableWorker: true
+        });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+            video.play().catch(function () {});
+        });
+        hls.on(Hls.Events.ERROR, function (evt, data) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                hls.startLoad();
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                try { hls.recoverMediaError(); }
+                catch (e) { if (onFatal) { onFatal(); } }
+            }
+        });
+        return hls;
+    }
+
     function mountHls(video, src, onFatal) {
+        // Chromium 且支持 MSE：优先 hls.js，从根上规避原生 MediaFoundation 卡死
+        if (window.Hls && Hls.isSupported() && isChromium()) {
+            return mountMse(video, src, onFatal);
+        }
+        // 原生路径（Safari 等的常规选择）
         if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = src;
             video.play().catch(function () {});
             return null;
         }
+        // 不支持原生但支持 MSE：仍用 hls.js 兜底
         if (window.Hls && Hls.isSupported()) {
-            var hls = new Hls({ liveSyncDurationCount: 3, enableWorker: true });
-            hls.loadSource(src);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                video.play().catch(function () {});
-            });
-            hls.on(Hls.Events.ERROR, function (evt, data) {
-                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                    hls.startLoad();
-                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                    try { hls.recoverMediaError(); }
-                    catch (e) { if (onFatal) { onFatal(); } }
-                }
-            });
-            return hls;
+            return mountMse(video, src, onFatal);
         }
         return undefined;
     }
@@ -321,16 +382,54 @@
 
         var src = findHlsUrl(did);
         var hls = null;
+        var wd = null;
         if (src) {
             hls = mountHls(video, src, null);
+            if (hls !== undefined) {
+                var holder = { hls: hls };
+                wd = Watchdog.start(video, function () { remountFullscreen(did); }, {
+                    getLatency: function () { return holder.hls ? holder.hls.latency : null; },
+                    seekLive: function () {
+                        if (holder.hls && isFinite(holder.hls.liveSyncPosition)) {
+                            video.currentTime = holder.hls.liveSyncPosition;
+                        }
+                    }
+                });
+                video.getWatchdogState = wd.getState;
+            }
         }
-        fullscreenRec = { did: did, video: video, hls: hls };
+        fullscreenRec = { did: did, video: video, hls: hls, wd: wd };
         layer.hidden = false;
     }
 
+    /* 全屏看门狗回调：销毁旧会话后重新挂载，video 元素保持不变 */
+    function remountFullscreen(did) {
+        var rec = fullscreenRec;
+        if (!rec) { return; }
+        if (rec.wd) { rec.wd.stop(); rec.wd = null; }
+        if (rec.hls) {
+            try { rec.hls.destroy(); } catch (e) { /* 忽略 */ }
+            rec.hls = null;
+        }
+        rec.video.pause();
+        rec.video.removeAttribute('src');
+        rec.video.load();
+        var src = findHlsUrl(did);
+        if (src) {
+            rec.hls = mountHls(rec.video, src, null);
+            if (rec.hls !== undefined) {
+                rec.wd = Watchdog.start(rec.video, function () { remountFullscreen(did); });
+                rec.video.getWatchdogState = rec.wd.getState;
+            }
+        }
+    }
+
     function destroyFullscreen() {
-        if (fullscreenRec && fullscreenRec.hls) {
-            try { fullscreenRec.hls.destroy(); } catch (e) { /* 忽略 */ }
+        if (fullscreenRec) {
+            if (fullscreenRec.wd) { fullscreenRec.wd.stop(); }
+            if (fullscreenRec.hls) {
+                try { fullscreenRec.hls.destroy(); } catch (e) { /* 忽略 */ }
+            }
         }
         var layer = document.getElementById('fullscreenLayer');
         layer.hidden = true;
@@ -382,6 +481,7 @@
                         rec.hlsUrl = s.hlsUrl;
                         attachHls(rec);
                     } else {
+                        stopWatchdog(rec);
                         if (rec.hls) {
                             try { rec.hls.destroy(); } catch (e) { /* 忽略 */ }
                             rec.hls = null;

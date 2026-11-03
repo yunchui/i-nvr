@@ -23,7 +23,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
@@ -231,7 +234,10 @@ public final class HlsSink implements StreamSink {
 
     private void handleAudio(MissPacket pkt) {
         if (muxer != null && !waitKey && muxer.aStream != null && audio.isUp()) {
-            if (!audio.feed(pkt.payload(), muxer.ctx, muxer.aStream)) {
+            // 用与视频同一基准的归一化设备时间（只读，不改动视频维护的 tsOffset/lastOutMs），
+            // 让音频 PTS 锚定设备时钟，从根上消除两条独立时间轴的错位。
+            long devMs = normalizeView(pkt.timestampMs());
+            if (!audio.feed(pkt.payload(), devMs, muxer.ctx, muxer.aStream)) {
                 log.warn("[{}] HLS 音频转码不可用，预览降级为静音（视频不受影响）", did);
             }
         }
@@ -340,6 +346,18 @@ public final class HlsSink implements StreamSink {
             lastOutMs = out;
         }
         return out;
+    }
+
+    /**
+     * 只读归一化：用当前 baseDevTs/tsOffset 把设备毫秒换算为与视频同一基准的内容毫秒，
+     * 不更新共享的 tsOffset/lastOutMs，避免音频包干扰视频时间戳状态。视频在断流时调整
+     * tsOffset 后，本方法读取同一偏移，音频自动跟随视频的消 gap 平移。
+     */
+    private long normalizeView(long devTs) {
+        if (baseDevTs < 0) {
+            return 0;
+        }
+        return devTs - baseDevTs + tsOffset;
     }
 
     /**
@@ -515,7 +533,10 @@ public final class HlsSink implements StreamSink {
         private AVFrame encFrame;
         private AVPacket packet;
         private long samples;
-        private long outSamples;
+        private long outSamples;          // 已从 fifo 读出（编码成 AAC）的累计样本位置
+        private long inSamples;           // 已写入 fifo 的累计样本位置
+        // 样本位置 → 设备 48k 时间的映射点：{写入后样本位置, 该位置设备样本时间}
+        private final Deque<long[]> marks = new ArrayDeque<>();
         private boolean up;
 
         AudioPipe(boolean wantAudio) {
@@ -573,8 +594,11 @@ public final class HlsSink implements StreamSink {
             return aacEnc;
         }
 
-        /** 喂入一个裸 Opus 包，把产出的 AAC 帧写入 fMP4 muxer 的音频流。 */
-        boolean feed(byte[] opus, AVFormatContext ctx, AVStream aStream) {
+        /**
+         * 喂入一个裸 Opus 包（{@code devMs} 为该包起始的归一化设备毫秒，与视频同基准），
+         * 把产出的 AAC 帧按设备时间戳写入 fMP4 muxer 的音频流。
+         */
+        boolean feed(byte[] opus, long devMs, AVFormatContext ctx, AVStream aStream) {
             if (!up) {
                 return false;
             }
@@ -586,14 +610,26 @@ public final class HlsSink implements StreamSink {
                 if (sr < 0) {
                     return false;
                 }
+                // 该 Opus 包起始样本位置与起始设备样本时间（48k 轴，1ms=48 样本）
+                long packetStartSample = inSamples;
+                long devSampleBase = devMs * 48L;
                 while (avcodec_receive_frame(opusDec, decFrame) == 0) {
                     int n = decFrame.nb_samples();
+                    // 先记录帧起始位置的设备样本时间（首帧/位置不衔接时需要，保证 pts 精确）
+                    if (marks.isEmpty() || marks.peekLast()[0] != inSamples) {
+                        marks.addLast(new long[]{inSamples,
+                                devSampleBase + (inSamples - packetStartSample)});
+                    }
                     if (av_audio_fifo_realloc(fifo, av_audio_fifo_size(fifo) + n) < 0
                             || av_audio_fifo_write(fifo, decFrame.data(), n) < n) {
                         av_frame_unref(decFrame);
                         up = false;
                         return false;
                     }
+                    // 记录本解码帧结束位置对应的设备样本时间（样本域内线性，无毫秒舍入）
+                    inSamples += n;
+                    long devSampleAtEnd = devSampleBase + (inSamples - packetStartSample);
+                    marks.addLast(new long[]{inSamples, devSampleAtEnd});
                     av_frame_unref(decFrame);
                     pumpFifo(ctx, aStream);
                 }
@@ -602,6 +638,42 @@ public final class HlsSink implements StreamSink {
                 up = false;
                 log.warn("[{}] HLS 音频转码异常，降级静音：{}", did, t.toString());
                 return false;
+            }
+        }
+
+        /** 查找样本位置 {@code samplePos} 对应的设备 48k 样本时间（相邻映射点间线性插值）。 */
+        private long devSampleAt(long samplePos) {
+            long[] prev = null;
+            Iterator<long[]> it = marks.iterator();
+            while (it.hasNext()) {
+                long[] m = it.next();
+                if (m[0] >= samplePos) {
+                    if (prev == null) {
+                        return m[1];
+                    }
+                    long span = m[0] - prev[0];
+                    if (span == 0) {
+                        return m[1];
+                    }
+                    double frac = (double) (samplePos - prev[0]) / span;
+                    return Math.round(prev[1] + frac * (m[1] - prev[1]));
+                }
+                prev = m;
+            }
+            return prev != null ? prev[1] : 0;
+        }
+
+        /** 回收已落后于当前播放位置的映射点，始终保留至少一个点用于插值。 */
+        private void pruneMarks() {
+            while (marks.size() > 2) {
+                Iterator<long[]> it = marks.iterator();
+                it.next();
+                long[] second = it.next();
+                if (second[0] < outSamples) {
+                    marks.pollFirst();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -626,16 +698,16 @@ public final class HlsSink implements StreamSink {
                 }
                 while (avcodec_receive_packet(aacEnc, packet) == 0) {
                     packet.stream_index(aStream.index());
-                    // 以“实际输出的 AAC 包序号”重新打时间戳。native AAC 编码器存在
-                    // priming delay，直接透传编码器 pts 会让首批包 dts 为负；手工管线没有
-                    // ffmpeg.c 自动补的 skip edit list，负 dts 会使 fMP4 首片 tfdt/sidx 非法，
-                    // 严格的浏览器原生 HLS 解复用器在 t=0 即中止（有声音的 TS 路径不受影响，
-                    // 因 ADTS 自带时间、不依赖 tfdt）。AAC-LC 48k 每包固定 1024 样本，故让首包
-                    // 从 0 开始，pts/dts 非负且严格单调，duration 显式为 1024。
-                    packet.pts(outSamples);
-                    packet.dts(outSamples);
+                    // AAC 输出 PTS 锚定与视频同一设备时钟：按当前 AAC 帧起始样本位置查映射，
+                    // 得到设备 48k 样本时间，而非独立样本计数。断流后设备时间自然跳变，
+                    // 音频跟随视频对齐，两条时间轴不再错位。native AAC 的 priming delay 由
+                    // 编码器在内部处理，这里仍保证 pts/dts 非负、严格单调，duration 显式 1024。
+                    long devPts = devSampleAt(outSamples);
+                    packet.pts(devPts);
+                    packet.dts(devPts);
                     packet.duration(fs);
                     outSamples += fs;
+                    pruneMarks();
                     // 从编码器 1/48000 换算到音频流实际 time_base
                     av_packet_rescale_ts(packet, TB_AUDIO, aStream.time_base());
                     av_interleaved_write_frame(ctx, packet);

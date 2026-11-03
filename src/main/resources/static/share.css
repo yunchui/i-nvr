@@ -37,7 +37,8 @@ html, body {
 .cell video {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    /* fill：拉伸铺满整个格子且不裁切；格子与画面宽高比不一致时会有非等比形变 */
+    object-fit: fill;
     background: #000;
 }
 

@@ -1,0 +1,100 @@
+<html style="margin:0;padding:0;">
+<title>iNvr 共享看板火狐播放链路与黑屏根因</title>
+<div style="width:100%;box-sizing:border-box;font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#f5f7fa;padding:24px;color:#1f2937;">
+  <h2 style="margin:0 0 4px;font-size:22px;">iNvr 火狐兼容性：播放链路与"正在连接"根因</h2>
+  <p style="margin:0 0 18px;font-size:14px;color:#6b7280;line-height:1.6;">
+    结论：<b>并非仅支持 Chrome 内核</b>。火狐在显示上下文正常时实测可播（HEVC probably、延迟约 3s）；当前黑屏是因为火狐运行在 <b>RDP 远程会话</b>，其 Windows Media Foundation 的 HEVC 解码器在该会话无法创建，与 profile、缓存无关。
+  </p>
+
+  <!-- 入口 -->
+  <div style="margin:0 auto 12px;max-width:520px;background:#111827;color:#fff;border-radius:10px;padding:14px 18px;text-align:center;font-size:15px;font-weight:600;">
+    mountHls(video, src) 决策
+  </div>
+  <div style="text-align:center;color:#9ca3af;font-size:16px;line-height:1;margin-bottom:12px;">↓ 按顺序判断</div>
+
+  <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+    <div style="flex:1 1 220px;min-width:210px;background:#fff;border:2px solid #2563eb;border-radius:12px;padding:14px;box-sizing:border-box;">
+      <div style="font-size:13px;font-weight:700;color:#2563eb;margin-bottom:6px;">分支 ①</div>
+      <div style="font-size:13px;line-height:1.5;background:#eff6ff;border-radius:8px;padding:9px;font-family:Consolas,monospace;">Hls.isSupported() &amp;&amp; isChromium()<br><span style="color:#6b7280;">// UA 含 "Chrome/"</span></div>
+      <div style="margin-top:8px;font-size:13px;font-weight:600;">→ hls.js MSE</div>
+      <div style="margin-top:6px;font-size:12.5px;color:#2563eb;">Edge / Chrome</div>
+    </div>
+    <div style="flex:1 1 220px;min-width:210px;background:#fff;border:2px solid #d1d5db;border-radius:12px;padding:14px;box-sizing:border-box;">
+      <div style="font-size:13px;font-weight:700;color:#6b7280;margin-bottom:6px;">分支 ②</div>
+      <div style="font-size:13px;line-height:1.5;background:#f9fafb;border-radius:8px;padding:9px;font-family:Consolas,monospace;">canPlayType('application/vnd.apple.mpegurl')</div>
+      <div style="margin-top:8px;font-size:13px;font-weight:600;">→ 原生 video.src</div>
+      <div style="margin-top:6px;font-size:12.5px;color:#6b7280;">Safari</div>
+    </div>
+    <div style="flex:1 1 220px;min-width:210px;background:#fff;border:2px solid #059669;border-radius:12px;padding:14px;box-sizing:border-box;box-shadow:0 4px 14px rgba(5,150,105,.16);">
+      <div style="font-size:13px;font-weight:700;color:#059669;margin-bottom:6px;">分支 ③（MSE 兜底）</div>
+      <div style="font-size:13px;line-height:1.5;background:#ecfdf5;border-radius:8px;padding:9px;font-family:Consolas,monospace;">前两条不满足，Hls.isSupported()</div>
+      <div style="margin-top:8px;font-size:13px;font-weight:600;">→ hls.js MSE（blob:）</div>
+      <div style="margin-top:6px;font-size:12.5px;color:#059669;font-weight:700;">Firefox 159 命中</div>
+    </div>
+  </div>
+
+  <!-- 时间线 -->
+  <div style="margin-top:20px;background:#fff;border-radius:12px;padding:18px;border:1px solid #e5e7eb;">
+    <div style="font-size:15px;font-weight:700;margin-bottom:14px;">关键时间线（系统事件日志 + BiDi 实测）</div>
+    <div style="position:relative;padding-left:22px;">
+      <div style="position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:#d1d5db;"></div>
+
+      <div style="position:relative;margin-bottom:16px;">
+        <div style="position:absolute;left:-19px;top:2px;width:12px;height:12px;border-radius:50%;background:#059669;"></div>
+        <div style="font-size:13.5px;font-weight:700;">10:53 前后 · 健康</div>
+        <div style="font-size:13px;color:#4b5563;line-height:1.55;">10:51:40 RDP 会话断开；此阶段全新调试 profile 实测 <b>HEVC = probably</b>，两路 readyState=4、延迟约 3s、0 错误。</div>
+      </div>
+
+      <div style="position:relative;margin-bottom:16px;">
+        <div style="position:absolute;left:-19px;top:2px;width:12px;height:12px;border-radius:50%;background:#d97706;"></div>
+        <div style="font-size:13.5px;font-weight:700;">11:01:58 · RDP 重连</div>
+        <div style="font-size:13px;color:#4b5563;line-height:1.55;">会话 1 重新连接成功，事件 263 "<b>WDDM 图形模式已启用</b>"，主显示切换为 Microsoft Remote Display Adapter（Display-Only 间接显示设备）。</div>
+      </div>
+
+      <div style="position:relative;">
+        <div style="position:absolute;left:-19px;top:2px;width:12px;height:12px;border-radius:50%;background:#dc2626;"></div>
+        <div style="font-size:13.5px;font-weight:700;">11:02 之后 · 全部失败</div>
+        <div style="font-size:13px;color:#4b5563;line-height:1.55;"><b>所有 profile</b>（含之前确证能播的调试 profile）HEVC 均变空串；video readyState=0、videoWidth=0、无画面，页面停在"正在连接"。stderr 报 MF Media Engine NOT_SUPPORTED。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 对照实验 -->
+  <div style="margin-top:16px;background:#fff;border-radius:12px;padding:18px;border:1px solid #e5e7eb;">
+    <div style="font-size:15px;font-weight:700;margin-bottom:10px;">为什么排除 profile / 缓存（严格对照）</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">验证动作</th>
+          <th style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">结果</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;">默认 profile prefs.js 通读</td><td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;">无禁用 HEVC/MSE 的 pref，无第三方扩展，无代理</td></tr>
+        <tr><td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;">单独还原旧 startup / 旧 shader（实验 A/B）</td><td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;">均 HEVC probably，单一缓存不致病</td></tr>
+        <tr><td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;">全部缓存目录移走、从零生成</td><td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;">HEVC 仍空</td></tr>
+        <tr><td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;">禁用 MF Media Engine / 禁用硬件解码</td><td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;">HEVC 仍空（与 Mozilla Bug 1950563 一致）</td></tr>
+        <tr><td style="padding:8px 10px;"><b>之前能播的调试 profile 复测</b></td><td style="padding:8px 10px;"><b>HEVC 也变空</b> → 根因在系统/会话层，对所有 profile 一视同仁</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 根因机制 -->
+  <div style="margin-top:16px;background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:18px;">
+    <div style="font-size:15px;font-weight:700;color:#b91c1c;margin-bottom:8px;">黑屏根因（已修正早期结论）</div>
+    <div style="font-size:13.5px;line-height:1.65;">
+      火狐走 hls.js + MSE 拿到 fMP4 分片后，需调用 Windows Media Foundation 的 HEVC 解码器；两路在线摄像头均为 HEVC。RDP 重连后会话主显示为 Display-Only 间接显示设备，MF Media Engine 在该上下文无法初始化 HEVC 解码，canPlayType 返回空，于是分片无法解码、永久"正在连接"。
+      <br><b style="color:#b91c1c;">早期"旧标签 404、刷新即恢复"和"默认 profile 损坏"的判断已被对照实验推翻</b>：当前刷新、换 profile、清缓存、切换解码 pref 都无法恢复。
+      <br>注：Mozilla Bug 2080409 指出，控制台看到的 MFCDM 报错只是"最后兜底"，更早的真实解码错误被 PDMFactory 隐藏；该缺陷 P2/S3 尚未修复。
+    </div>
+  </div>
+
+  <!-- 前提与方案 -->
+  <div style="margin-top:14px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:16px;font-size:13.5px;line-height:1.65;">
+    <b>可恢复方向（待拍板，未改动）：</b>
+    ① 在物理显示器/本地 console 会话（非 RDP）打开火狐；② 调整 RDP GPU 重定向/默认 GPU 后重连；③ 服务端对火狐按能力降级 AVC 或前端加 codec 检测与明确提示；④ WASM 软解。
+    <br><b>前提：</b>系统 HEVC 扩展 Microsoft.HEVCVideoExtension 2.4.149.0 已装且 Status Ok；换到未装该扩展的机器，火狐与 Edge 都可能无法解码 HEVC。
+    <br><b>另：</b>S1（甲辰万里·门口）"正在连接"是该摄像头本身无流（P4 独立项），与浏览器无关。
+  </div>
+</div>
+</html>
