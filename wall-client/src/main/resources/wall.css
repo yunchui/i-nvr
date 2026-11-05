@@ -1,0 +1,173 @@
+/* iNvr RTSP 大屏客户端样式，视觉对齐 Web 共享大屏 share.css */
+
+.root {
+    -fx-background-color: #000000;
+    -fx-font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+/* 网格容器 */
+#boardGrid {
+    -fx-background-color: #1e293b;
+    -fx-hgap: 2px;
+    -fx-vgap: 2px;
+}
+
+/* 槽位 */
+.cell {
+    -fx-background-color: #000000;
+}
+
+.cell .cell-image {
+    -fx-background-color: #000000;
+}
+
+/* 右下角名称条 */
+.cell-bar {
+    -fx-background-color: rgba(0, 0, 0, 0.55);
+    -fx-background-radius: 8px;
+    -fx-padding: 5px 10px 5px 10px;
+    -fx-spacing: 6px;
+}
+
+.cell-bar .tag {
+    -fx-background-color: #0891b2;
+    -fx-background-radius: 999px;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 11px;
+    -fx-padding: 1px 8px 1px 8px;
+}
+
+.cell-bar .tag.event {
+    -fx-background-color: #dc2626;
+}
+
+.cell-bar .name {
+    -fx-text-fill: #e2e8f0;
+    -fx-font-size: 13px;
+}
+
+/* 占位 */
+.placeholder {
+    -fx-background-color: #000000;
+    -fx-alignment: CENTER;
+    -fx-spacing: 8px;
+}
+
+.placeholder .ph-icon {
+    -fx-font-size: 26px;
+}
+
+.placeholder .ph-text {
+    -fx-font-size: 14px;
+    -fx-text-fill: #64748b;
+}
+
+.placeholder.offline .ph-icon,
+.placeholder.offline .ph-text {
+    -fx-text-fill: #475569;
+}
+
+.placeholder.error .ph-icon,
+.placeholder.error .ph-text {
+    -fx-text-fill: #b91c1c;
+}
+
+.placeholder.empty .ph-icon,
+.placeholder.empty .ph-text {
+    -fx-text-fill: #334155;
+}
+
+/* 事件全屏覆盖层 */
+#fullscreenLayer {
+    -fx-background-color: #000000;
+}
+
+/* 顶部状态条 */
+#notice {
+    -fx-background-color: rgba(8, 145, 178, 0.92);
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 14px;
+    -fx-alignment: CENTER;
+    -fx-padding: 10px 16px 10px 16px;
+}
+
+#notice.danger {
+    -fx-background-color: rgba(185, 28, 28, 0.92);
+}
+
+/* 启动/失效层 */
+#bootLayer {
+    -fx-background-color: #0f172a;
+    -fx-alignment: CENTER;
+    -fx-spacing: 14px;
+}
+
+#bootLayer .boot-title {
+    -fx-text-fill: #e2e8f0;
+    -fx-font-size: 22px;
+}
+
+#bootLayer .boot-sub {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 14px;
+}
+
+/* 设置页 */
+#settingsLayer {
+    -fx-background-color: #0f172a;
+    -fx-alignment: CENTER;
+}
+
+.settings-card {
+    -fx-background-color: #1e293b;
+    -fx-background-radius: 12px;
+    -fx-padding: 28px 32px 28px 32px;
+    -fx-spacing: 14px;
+    -fx-min-width: 560px;
+    -fx-max-width: 720px;
+}
+
+.settings-card .settings-title {
+    -fx-text-fill: #e2e8f0;
+    -fx-font-size: 20px;
+}
+
+.settings-card .field-label {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 13px;
+}
+
+.settings-card .text-field {
+    -fx-background-color: #0f172a;
+    -fx-text-fill: #e2e8f0;
+    -fx-prompt-text-fill: #475569;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-border-color: #334155;
+    -fx-padding: 8px 10px 8px 10px;
+    -fx-font-size: 13px;
+}
+
+.settings-card .btn-primary {
+    -fx-background-color: #0891b2;
+    -fx-text-fill: #ffffff;
+    -fx-background-radius: 8px;
+    -fx-padding: 9px 22px 9px 22px;
+    -fx-font-size: 14px;
+    -fx-cursor: hand;
+}
+
+.settings-card .btn-primary:hover {
+    -fx-background-color: #0e7490;
+}
+
+.settings-card .settings-error {
+    -fx-text-fill: #f87171;
+    -fx-font-size: 13px;
+}
+
+.settings-card .settings-hint {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+    -fx-wrap-text: true;
+}

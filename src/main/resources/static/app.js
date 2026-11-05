@@ -845,6 +845,8 @@
             $('setShareHint').textContent = '默认值：事件 ' + sh.defaultEventDurationSec + 's、心跳 '
                 + sh.defaultSseHeartbeatSec + 's、兜底重载 ' + sh.defaultPageReloadSec + 's、轮询 '
                 + sh.defaultConfigPollSec + 's。';
+            // 开放接口 API 密钥状态（独立接口，失败不阻塞其余设置项）
+            loadApiKey();
         } catch (e) {
             if (e.status === 401) return; // 门禁失效由全局逻辑切回解锁页
             toast('加载设置失败：' + e.message, 'err');
@@ -1051,6 +1053,93 @@
             showPwError(e.message || '修改失败');
         } finally {
             btn.disabled = false;
+        }
+    }
+
+    /* ---------- 开放接口 API 密钥 ---------- */
+    function showApiKeyError(msg) {
+        var box = $('apiKeyError');
+        if (!msg) { box.hidden = true; box.textContent = ''; return; }
+        box.hidden = false;
+        box.textContent = msg;
+    }
+
+    /** 按当前页面地址拼出开放接口完整 URL（兼容根路径与 fnOS 网关 /app/{appname}/ 部署）。 */
+    function snapshotApiUrl() {
+        var p = location.pathname;
+        var dir = p.substring(0, p.lastIndexOf('/') + 1);
+        return location.origin + dir + 'api/snapshot/摄像头DID';
+    }
+
+    function renderApiKey(s, freshPlain) {
+        var html = s.configured
+            ? setKv('密钥状态', '已配置 ' + esc(s.mask || ''))
+                + setKv('配置时间', s.createdAt ? fmtTime(s.createdAt) : '-')
+            : setKv('密钥状态', '未配置');
+        $('apiKeyStatus').innerHTML = html;
+        $('btnApiDelete').disabled = !s.configured;
+        $('apiKeyCustomInput').value = '';
+        showApiKeyError('');
+        var freshBox = $('apiKeyFreshBox');
+        if (freshPlain) {
+            freshBox.hidden = false;
+            $('apiKeyFreshText').value = freshPlain;
+        } else {
+            freshBox.hidden = true;
+            $('apiKeyFreshText').value = '';
+        }
+        $('apiCurl').textContent = 'curl -H "X-API-Key: 你的密钥" "'
+            + snapshotApiUrl() + '" --output snapshot.jpg';
+    }
+
+    async function loadApiKey() {
+        try {
+            var s = await api('api/settings/apikey');
+            renderApiKey(s, null);
+        } catch (e) {
+            if (e.status === 401) { return; }
+            toast('加载 API 密钥状态失败：' + e.message, 'err');
+        }
+    }
+
+    async function generateApiKey() {
+        if (!confirm('确认生成新的随机 API 密钥？\n现有密钥将立即失效，已使用旧密钥的外部系统需同步更换。')) return;
+        try {
+            var s = await api('api/settings/apikey/generate', { method: 'POST' });
+            renderApiKey(s, s.apiKey);
+            toast('新密钥已生成，请立即复制保存', 'ok');
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            toast('生成失败：' + e.message, 'err');
+        }
+    }
+
+    async function saveApiKey() {
+        var v = $('apiKeyCustomInput').value.trim();
+        if (!v) { showApiKeyError('请输入自定义 API 密钥（至少 16 位）'); return; }
+        if (!confirm('确认保存自定义 API 密钥？\n现有密钥将立即失效。')) return;
+        try {
+            var s = await api('api/settings/apikey', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey: v })
+            });
+            renderApiKey(s, s.apiKey);
+            toast('自定义密钥已保存，请立即复制保存', 'ok');
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            showApiKeyError(e.message || '保存失败');
+        }
+    }
+
+    async function deleteApiKey() {
+        if (!confirm('确认删除 API 密钥？\n删除后所有携带该密钥的开放接口调用都会返回 401。')) return;
+        try {
+            var s = await api('api/settings/apikey', { method: 'DELETE' });
+            renderApiKey(s, null);
+            toast('API 密钥已删除', 'ok');
+        } catch (e) {
+            if (e.status === 401) { scheduleGateRelock(); return; }
+            toast('删除失败：' + e.message, 'err');
         }
     }
 
@@ -1689,6 +1778,13 @@
         $('btnSaveHls').addEventListener('click', saveHls);
         $('btnSaveShare').addEventListener('click', saveShare);
         $('btnSavePw').addEventListener('click', changeAccessPassword);
+
+        // 开放接口 API 密钥
+        $('btnApiGen').addEventListener('click', generateApiKey);
+        $('btnApiSave').addEventListener('click', saveApiKey);
+        $('btnApiDelete').addEventListener('click', deleteApiKey);
+        $('btnApiCopy').addEventListener('click', function () { copyText($('apiKeyFreshText').value); });
+        $('apiKeyCustomInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') saveApiKey(); });
 
         // 目录选择弹窗
         $('dirClose').addEventListener('click', closeDirModal);

@@ -322,3 +322,7 @@ body {
     .board-layouts { flex-direction: column; }
     .board-slots { grid-template-columns: 1fr; }
 }
+
+/* 开放接口 API 密钥：curl 示例块 */
+.api-curl { display: block; font-family: Consolas, monospace; font-size: 12px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-all; color: #0f172a; }

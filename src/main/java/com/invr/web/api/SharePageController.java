@@ -3,6 +3,7 @@ package com.invr.web.api;
 import com.invr.model.BoardSlot;
 import com.invr.model.CameraDevice;
 import com.invr.model.ShareBoard;
+import com.invr.rtsp.RtspServer;
 import com.invr.web.service.BoardLayouts;
 import com.invr.web.service.DeviceCatalog;
 import com.invr.web.service.ShareBoardService;
@@ -15,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -36,12 +38,14 @@ public class SharePageController {
     private final ShareBoardService boards;
     private final DeviceCatalog catalog;
     private final ShareEventService eventService;
+    private final RtspServer rtspServer;
 
     public SharePageController(ShareBoardService boards, DeviceCatalog catalog,
-                               ShareEventService eventService) {
+                               ShareEventService eventService, RtspServer rtspServer) {
         this.boards = boards;
         this.catalog = catalog;
         this.eventService = eventService;
+        this.rtspServer = rtspServer;
     }
 
     @GetMapping("/share/{token}")
@@ -56,7 +60,8 @@ public class SharePageController {
     }
 
     @GetMapping(value = "/share/{token}/board", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<?> board(@PathVariable String token) {
+    public ResponseEntity<?> board(@PathVariable String token,
+                                   @RequestHeader(value = HttpHeaders.HOST, required = false) String hostHeader) {
         ShareBoard b = boards.resolveByToken(token);
         if (b == null) {
             return ResponseEntity.status(410).body(Map.of("error", "共享看板不可用、已过期或已停用"));
@@ -98,10 +103,36 @@ public class SharePageController {
         resp.put("eventsUrl", "share/" + token + "/events");
         resp.put("serverTime", System.currentTimeMillis());
         resp.put("expireAt", b.expireAt);
+        // RTSP 下行坐标：原生大屏客户端据此拼 rtsp://host:port/<did>，免去本地猜测端口；
+        // port 取 RtspServer 实际监听端口（Web 设置页运行时 rebind 后同样准确）。
+        Map<String, Object> rtsp = new LinkedHashMap<>();
+        rtsp.put("host", hostOnly(hostHeader));
+        rtsp.put("port", rtspServer.getPort());
+        resp.put("rtsp", rtsp);
         // 看板轮询/兜底重载周期（设置页可配），供 share.js 覆盖内置默认
         resp.put("configPollSec", eventService.effectiveConfigPollSec());
         resp.put("pageReloadSec", eventService.effectivePageReloadSec());
         return ResponseEntity.ok(resp);
+    }
+
+    /**
+     * 从 HTTP Host 头取出主机部分（去掉端口）。支持 {@code host:port} 与 IPv6 字面量
+     * {@code [::1]:port}；无法解析时返回 null，由客户端回退到请求 URL 的主机。
+     */
+    static String hostOnly(String hostHeader) {
+        if (hostHeader == null || hostHeader.isBlank()) {
+            return null;
+        }
+        String h = hostHeader.trim();
+        if (h.startsWith("[")) {
+            int end = h.indexOf(']');
+            return end > 1 ? h.substring(1, end) : h;
+        }
+        int colon = h.lastIndexOf(':');
+        if (colon > 0 && h.indexOf(':') == colon) {
+            return h.substring(0, colon);
+        }
+        return h;
     }
 
     /** 失效时的极简提示页（不依赖任何外部资源）。 */

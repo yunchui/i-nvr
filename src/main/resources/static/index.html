@@ -7,7 +7,7 @@
     <base href="./">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230891b2'/%3E%3C/svg%3E">
     <title>iNvr · 小米摄像头 NVR</title>
-    <link rel="stylesheet" href="style.css?v=15">
+    <link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 <header class="topbar">
@@ -248,6 +248,38 @@
                     </div>
                 </div>
                 <div class="set-card">
+                    <h3>开放接口 · API 密钥</h3>
+                    <p class="muted small">供外部系统 / 脚本通过 HTTP 调用本机开放接口，调用时须在请求头携带
+                        <code>X-API-Key</code>。服务端只保存密钥的 SHA-256 摘要、不存明文。当前仅开放
+                        “按摄像头 DID 截取实时画面一帧（JPEG）”，其余管理类接口不接受 API 密钥。</p>
+                    <label>当前状态</label>
+                    <div class="set-kv" id="apiKeyStatus"></div>
+                    <label>随机密钥（重新生成后旧密钥立即失效，完整明文仅此一次展示）</label>
+                    <div class="set-actions">
+                        <button class="btn primary" id="btnApiGen" type="button">生成新密钥</button>
+                        <button class="btn ghost danger" id="btnApiDelete" type="button" disabled>删除密钥</button>
+                    </div>
+                    <div id="apiKeyFreshBox" class="link-box" hidden style="margin-top:10px;">
+                        <p class="muted small">请立即复制并妥善保存，刷新或离开后无法再次查看完整密钥：</p>
+                        <div class="link-row">
+                            <input type="text" id="apiKeyFreshText" readonly>
+                            <button class="btn tiny" id="btnApiCopy" type="button">复制</button>
+                        </div>
+                    </div>
+                    <hr class="set-divider">
+                    <label>自定义密钥（16～80 位非空白可见字符，保存后旧密钥立即失效）</label>
+                    <div class="set-edit">
+                        <input type="text" id="apiKeyCustomInput" autocomplete="off" placeholder="输入自定义 API 密钥">
+                        <button class="btn" id="btnApiSave" type="button">保存自定义</button>
+                    </div>
+                    <div id="apiKeyError" class="error-box" hidden></div>
+                    <hr class="set-divider">
+                    <label>调用示例（把 DID 替换为实际摄像头 DID，返回 image/jpeg）</label>
+                    <div class="link-box">
+                        <code id="apiCurl" class="api-curl"></code>
+                    </div>
+                </div>
+                <div class="set-card">
                     <h3>HLS 预览参数</h3>
                     <p class="muted small">网页 HLS 实时预览的分片与预热设置。保存后立即生效：分片时长/窗口/音频会让正在进行的预览短暂中断后自动恢复；预热开关下一轮自动生效。</p>
                     <label>HLS 分片时长（秒，1～10；受摄像头 GOP 限制，真机约 3s）</label>
@@ -401,6 +433,6 @@
 
 <script src="vendor/hls.min.js"></script>
 <script src="watchdog.js?v=17"></script>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>
