@@ -133,6 +133,7 @@ flowchart LR
 - **一律按摄像头原始分辨率拉流，native 不缩放**：grabber 不调用 `setImageWidth/Height`，`swscale` 只做 YUV→BGRA 颜色转换，首帧按真实帧尺寸（实测 3200×1800 / 1920×1080）创建 `PixelBuffer`；到格子的缩放全部交给 `ImageView`（`smooth=true`，GPU 平滑），因此清晰度与格子大小解耦，任意分辨率源流、任意窗口尺寸下都使用源全分辨率位图（单路 BGRA 缓冲约 22MB/8.3MB）。
 - **格子分割比例只由布局与窗口决定，与视频分辨率无关**：`GridPane` 用百分比轨道（grid4 为 2×2、grid9/grid6 为 3×3，grid6 BIG 跨 2×2），`boardGrid` 设 `maxSize=MAX_VALUE` 填满根区域；全屏与窗口化都随窗口实时按比例分割，`ImageView` 绑定单元格宽高、`preserveRatio=false` 拉伸填满。舞台最小尺寸限定 **480×270**（16:9 下限），F11 切换全屏/窗口。事件全屏路用独立临时播放器、同样原始分辨率（见 6.3）。
   > 注意：解码与上屏位图均为全分辨率，缩放集中在 GPU；9 路全 3.5K 的软解与内存开销取决于大屏机硬件，硬解与真机多路压测单列 M4。
+- **帧生命周期锁 `frameLock`（修复 F5 原生闪退）**：F5/看门狗在 JavaFX 或调度线程调 `closeGrabber()` 做 `stop/release`，而抓取线程在 `grabFrame()` 返回后读取 `Frame.image[0]` 这个 native `DirectByteBuffer`；原始分辨率下单帧拷贝达 8~22MB、耗时窗口显著增大，release 与读帧并发即 use-after-free，JVM 崩在 `jlong_disjoint_arraycopy`（`EXCEPTION_ACCESS_VIOLATION`，hs_err 中可见崩溃线程正拷贝一块 capacity=1920×1080×4 的 DirectByteBuffer 且 `refreshRequested=true`）。修复：新增独立于 `bufferLock` 的 `frameLock`，抓取线程**仅在锁内**做"native 帧→自有 bgraBuffer"拷贝，进入后先判 `stopped || grabber != 当前实例`，grabber 已被关闭/替换则丢帧不读；`closeGrabber` 在同一把锁内完成"置空引用 + stop + release"。`g.grab()` 刻意留在锁外，外部 close 才能中断阻塞中的取流而不死锁；首帧建 `PixelBuffer` 的 `runOnFxAndWait` 也移到锁外（自有内存、与 grabber 无关），避免抓取线程等 FX 线程、FX 线程又等 `frameLock` 的互锁。离线并发压测（15 秒内 4256 次全帧拷贝对 1245 次 stop/release）无访问违例。
 
 ### 4.3 延迟预算（目标值，待实测校准）
 

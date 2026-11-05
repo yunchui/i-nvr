@@ -90,6 +90,14 @@ public final class RtspPlayer {
 
     /** 保护 bgraBuffer：工作线程写、FX 渲染线程 updateBuffer 读取。 */
     private final Object bufferLock = new Object();
+    /**
+     * 帧生命周期锁：互斥"工作线程读取 frame 的 native 缓冲"与"任意线程 stop/release grabber"。
+     * F5/看门狗在 FX 或调度线程调 {@link #closeGrabber()}，若此刻工作线程正在从 Frame 的
+     * DirectByteBuffer 拷贝（原始分辨率单帧 8~22MB，耗时窗口大），release 会释放其 native 内存，
+     * 工作线程再读即 EXCEPTION_ACCESS_VIOLATION 闪退。g.grab() 故意放在锁外，保证 close 能中断
+     * 阻塞中的取流；锁内只做短时内存拷贝，且不做任何等待 FX 线程的动作以免互锁。
+     */
+    private final Object frameLock = new Object();
     private WritableImage image;
     private PixelBuffer<ByteBuffer> pixelBuffer;
     private ByteBuffer bgraBuffer;
@@ -245,7 +253,7 @@ public final class RtspPlayer {
                     if (frame.image == null) {
                         continue; // 音频帧/空帧，一期静音忽略
                     }
-                    renderFrame(frame);
+                    renderFrame(g, frame);
                     reachedPlaying = true;
                     if (state != PlayerState.PLAYING) {
                         setState(PlayerState.PLAYING);
@@ -337,12 +345,14 @@ public final class RtspPlayer {
 
     // ===================== 帧渲染 =====================
 
-    private void renderFrame(Frame frame) {
+    private void renderFrame(FFmpegFrameGrabber expected, Frame frame) {
         int w = frame.imageWidth;
         int h = frame.imageHeight;
         if (w <= 0 || h <= 0 || frame.image == null || frame.image.length == 0) {
             return;
         }
+        // 上屏缓冲是自有内存、与 grabber 生命周期无关；放在 frameLock 外重建，避免 worker 等待
+        // FX 线程时，FX 线程又在 closeGrabber 里等 frameLock 造成互锁
         if (pixelBuffer == null || w != surfaceW || h != surfaceH) {
             // WritableImage/PixelBuffer 必须在 FX 线程创建；同步等待完成后再写缓冲
             log.info("[{}] 实际帧尺寸 {}x{}，重建上屏缓冲", did, w, h);
@@ -360,20 +370,27 @@ public final class RtspPlayer {
         }
         ByteBuffer src = (ByteBuffer) frame.image[0];
 
-        synchronized (bufferLock) {
-            bgraBuffer.clear();
-            for (int r = 0; r < h; r++) {
-                src.position(r * stride);
-                src.get(rowBuffer, 0, rowBytesLen);
-                bgraBuffer.put(rowBuffer, 0, rowBytesLen);
+        // 读取 native 帧缓冲全程持 frameLock，与 closeGrabber 的 stop/release 互斥；
+        // 若 grabber 已被 F5/看门狗关闭或替换（grabber != expected），直接丢弃本帧，绝不触碰其内存
+        synchronized (frameLock) {
+            if (stopped || grabber != expected) {
+                return;
             }
-            bgraBuffer.flip();
+            synchronized (bufferLock) {
+                bgraBuffer.clear();
+                for (int r = 0; r < h; r++) {
+                    src.position(r * stride);
+                    src.get(rowBuffer, 0, rowBytesLen);
+                    bgraBuffer.put(rowBuffer, 0, rowBytesLen);
+                }
+                bgraBuffer.flip();
+            }
         }
 
         long now = System.currentTimeMillis();
         lastFrameMs = now;
         if (now - lastPushMs >= PUSH_INTERVAL_MS) {
-            // updateBuffer 与渲染 pulse 均在 FX 线程，持同一把锁避免与写缓冲并发
+            // updateBuffer 与渲染 pulse 均在 FX 线程，持 bufferLock 避免与写缓冲并发（读的是自有 bgraBuffer）
             final PixelBuffer<ByteBuffer> pb = pixelBuffer;
             Platform.runLater(() -> {
                 synchronized (bufferLock) {
@@ -415,20 +432,24 @@ public final class RtspPlayer {
     }
 
     private void closeGrabber() {
-        FFmpegFrameGrabber g = grabber;
-        grabber = null;
-        if (g == null) {
-            return;
-        }
-        try {
-            g.stop();
-        } catch (FrameGrabber.Exception e) {
-            log.debug("[{}] grabber.stop 异常：{}", did, e.toString());
-        }
-        try {
-            g.release();
-        } catch (FrameGrabber.Exception e) {
-            log.debug("[{}] grabber.release 异常：{}", did, e.toString());
+        // 全程持 frameLock：等待工作线程结束当前帧的 native 读取后再 stop/release，杜绝释放后访问。
+        // g.grab() 在锁外阻塞，故即便工作线程正卡在取流，这里也能拿到锁并中断它。
+        synchronized (frameLock) {
+            FFmpegFrameGrabber g = grabber;
+            grabber = null;
+            if (g == null) {
+                return;
+            }
+            try {
+                g.stop();
+            } catch (FrameGrabber.Exception e) {
+                log.debug("[{}] grabber.stop 异常：{}", did, e.toString());
+            }
+            try {
+                g.release();
+            } catch (FrameGrabber.Exception e) {
+                log.debug("[{}] grabber.release 异常：{}", did, e.toString());
+            }
         }
     }
 
