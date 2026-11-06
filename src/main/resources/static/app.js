@@ -856,7 +856,7 @@
     async function saveSettings(reset) {
         var val = reset ? '' : $('setDirInput').value.trim();
         if (!reset && !val) {
-            toast('请先点击“浏览”选择一个目录', 'err');
+            toast('请输入路径或点击"浏览"选择一个目录', 'err');
             return;
         }
         if (!confirm(reset
@@ -1767,6 +1767,10 @@
 
         // 设置：存储路径 / 分段 / 端口
         $('btnBrowseDir').addEventListener('click', openDirModal);
+        // 手动输入绝对路径同样允许保存（非空即可，由服务端校验可写/可创建）
+        $('setDirInput').addEventListener('input', function () {
+            $('btnSaveDir').disabled = !this.value.trim();
+        });
         $('btnSaveDir').addEventListener('click', function () { saveSettings(false); });
         $('btnResetDir').addEventListener('click', function () {
             if (confirm('确认恢复为默认存储目录？\n当前正在录制的分段会在封段后写入默认目录。')) saveSettings(true);
